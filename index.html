@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notițe rapide</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1>Notițe rapide</h1>
+          <button id="new-note" type="button">Notă nouă</button>
+        </div>
+        <div id="note-list" class="note-list"></div>
+      </aside>
+
+      <main class="editor">
+        <div class="toolbar">
+          <h2>Editor</h2>
+          <button id="delete-note" type="button" disabled>Șterge</button>
+        </div>
+        <p id="status" class="status">Alege o notă sau creează una nouă.</p>
+
+        <form id="note-form" class="note-form">
+          <label for="title">Titlu</label>
+          <input
+            id="title"
+            name="title"
+            type="text"
+            placeholder="Titlu notițe"
+          />
+
+          <label for="content">Conținut</label>
+          <textarea
+            id="content"
+            name="content"
+            placeholder="Scrie aici..."
+          ></textarea>
+
+          <button class="primary" type="submit">Salvează notița</button>
+        </form>
+      </main>
+    </div>
+
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>

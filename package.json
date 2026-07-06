@@ -1,0 +1,13 @@
+{
+  "name": "my-electron-app",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "electron .",
+    "desktop": "electron .",
+    "serve": "node server.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0"
+  }
+}
