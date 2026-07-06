@@ -17,19 +17,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for _ in $(seq 1 20); do
-  if grep -q "http://" "$LOG_FILE"; then
+URL=""
+for port in 3000 3001 3002 3003 3004 3005; do
+  if curl -sSf "http://127.0.0.1:${port}/index.html" >/dev/null 2>&1; then
+    URL="http://127.0.0.1:${port}"
     break
   fi
-  sleep 0.25
 done
 
-URL=$(grep -o 'http://[^[:space:]]*' "$LOG_FILE" | tail -1 || true)
 if [[ -z "$URL" ]]; then
   URL="http://127.0.0.1:3000"
 fi
 
-if command -v xdg-open >/dev/null 2>&1; then
+if command -v chromium >/dev/null 2>&1; then
+  chromium --app="$URL" --class=Notite --user-data-dir="/tmp/notite-profile" --no-sandbox --disable-dev-shm-usage "$URL" >/dev/null 2>&1 &
+elif command -v chromium-browser >/dev/null 2>&1; then
+  chromium-browser --app="$URL" --class=Notite --user-data-dir="/tmp/notite-profile" --no-sandbox --disable-dev-shm-usage "$URL" >/dev/null 2>&1 &
+elif command -v xdg-open >/dev/null 2>&1; then
   xdg-open "$URL" >/dev/null 2>&1 || true
 elif command -v gio >/dev/null 2>&1; then
   gio open "$URL" >/dev/null 2>&1 || true

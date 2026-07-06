@@ -3,44 +3,60 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Notițe rapide</title>
+    <title>Vault Notes</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app">
+    <div class="workspace">
       <aside class="sidebar">
-        <div class="sidebar-header">
-          <h1>Notițe rapide</h1>
-          <button id="new-note" type="button">Notă nouă</button>
+        <div class="brand">
+          <div class="brand-mark">✦</div>
+          <div>
+            <h1>Vault</h1>
+            <p>Spatiu de notite</p>
+          </div>
         </div>
-        <div id="note-list" class="note-list"></div>
-      </aside>
 
-      <main class="editor">
-        <div class="toolbar">
-          <h2>Editor</h2>
+        <button id="new-note" class="primary-btn" type="button">
+          + Notă nouă
+        </button>
+
+        <div class="sidebar-toolbar">
+          <input id="filter" placeholder="Caută note..." />
+        </div>
+
+        <div id="note-list" class="note-list" role="list"></div>
+
+        <div class="sidebar-actions">
+          <button id="rename-note" type="button" disabled>Redenumire</button>
           <button id="delete-note" type="button" disabled>Șterge</button>
         </div>
-        <p id="status" class="status">Alege o notă sau creează una nouă.</p>
+      </aside>
 
-        <form id="note-form" class="note-form">
-          <label for="title">Titlu</label>
-          <input
-            id="title"
-            name="title"
-            type="text"
-            placeholder="Titlu notițe"
-          />
+      <main class="editor-shell">
+        <header class="topbar">
+          <div class="topbar-left">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+          <div class="topbar-title" id="file-title">Selectează o notă</div>
+          <div class="topbar-right">
+            <span id="status" class="status"
+              >Alege o pagină sau creează una nouă.</span
+            >
+          </div>
+        </header>
 
-          <label for="content">Conținut</label>
-          <textarea
-            id="content"
-            name="content"
-            placeholder="Scrie aici..."
-          ></textarea>
-
-          <button class="primary" type="submit">Salvează notița</button>
-        </form>
+        <section class="canvas-panel">
+          <div
+            id="canvas"
+            class="canvas"
+            contenteditable="true"
+            spellcheck="false"
+            aria-label="Editor text"
+          ></div>
+        </section>
       </main>
     </div>
 

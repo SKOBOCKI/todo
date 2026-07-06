@@ -7,13 +7,14 @@ import {
 } from "./notes.mjs";
 
 const storage = window.localStorage;
-const noteForm = document.querySelector("#note-form");
 const noteList = document.querySelector("#note-list");
-const titleInput = document.querySelector("#title");
-const contentInput = document.querySelector("#content");
 const statusLine = document.querySelector("#status");
 const deleteButton = document.querySelector("#delete-note");
 const newButton = document.querySelector("#new-note");
+const renameButton = document.querySelector("#rename-note");
+const filterInput = document.querySelector("#filter");
+const fileTitle = document.querySelector("#file-title");
+const canvas = document.querySelector("#canvas");
 
 let notes = loadNotes(storage);
 let selectedNoteId = null;
@@ -28,26 +29,45 @@ function formatDate(isoString) {
   }).format(date);
 }
 
-function renderNotes() {
+function debounce(fn, ms = 250) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>\"]/g,
+    (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[m],
+  );
+}
+
+function renderNotes(filter = "") {
   noteList.innerHTML = "";
 
-  if (notes.length === 0) {
+  const list = notes.filter((n) =>
+    n.title.toLowerCase().includes(filter.toLowerCase()),
+  );
+  if (list.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "Nu ai nicio notă încă. Creează una nouă.";
+    empty.textContent = "Nu există fișiere.";
     noteList.appendChild(empty);
     return;
   }
 
   const fragment = document.createDocumentFragment();
-
-  notes.forEach((note) => {
-    const item = document.createElement("button");
-    item.type = "button";
+  list.forEach((note) => {
+    const item = document.createElement("div");
     item.className = `note-item${note.id === selectedNoteId ? " active" : ""}`;
+    item.setAttribute("role", "listitem");
     item.innerHTML = `
-      <strong>${note.title}</strong>
-      <span>${formatDate(note.updatedAt)}</span>
+      <div class="meta">
+        <strong>${escapeHtml(note.title)}</strong>
+        <span>${formatDate(note.updatedAt)}</span>
+      </div>
     `;
     item.addEventListener("click", () => selectNote(note.id));
     fragment.appendChild(item);
@@ -60,72 +80,76 @@ function updateStatus(message) {
   statusLine.textContent = message;
 }
 
-function resetForm() {
-  titleInput.value = "";
-  contentInput.value = "";
+function resetSelection() {
   selectedNoteId = null;
+  fileTitle.textContent = "(Nicio fișier selectat)";
+  canvas.innerHTML = "";
   deleteButton.disabled = true;
-  updateStatus("Scrie o notă nouă și salveaz-o.");
+  renameButton.disabled = true;
+  updateStatus("Selectează un fișier sau creează unul nou.");
 }
 
 function selectNote(noteId) {
   const note = notes.find((item) => item.id === noteId);
-  if (!note) {
-    return;
-  }
+  if (!note) return;
 
   selectedNoteId = note.id;
-  titleInput.value = note.title;
-  contentInput.value = note.content;
+  fileTitle.textContent = note.title;
+  canvas.innerText = note.content || "";
   deleteButton.disabled = false;
-  updateStatus(`Se editează: ${note.title}`);
-  renderNotes();
+  renameButton.disabled = false;
+  updateStatus(`Editezi: ${note.title}`);
+  renderNotes(filterInput?.value || "");
 }
 
-function saveCurrentNote(event) {
-  event.preventDefault();
+// removed legacy form-based save/delete handlers
 
-  const title = titleInput.value.trim();
-  const content = contentInput.value.trim();
-
-  if (!title && !content) {
-    updateStatus("Adaugă un titlu sau un conținut înainte de a salva.");
-    return;
-  }
-
-  if (selectedNoteId) {
-    notes = updateNote(notes, selectedNoteId, { title, content });
-    updateStatus("Notița a fost actualizată.");
-  } else {
-    const created = addNote(notes, title, content);
-    notes = created;
-    selectedNoteId = notes[0].id;
-    updateStatus("Notița a fost creată.");
-  }
-
+const saveCanvasDebounced = debounce(() => {
+  if (!selectedNoteId) return;
+  const content = canvas.innerText.replace(/\u00A0/g, " ");
+  notes = updateNote(notes, selectedNoteId, { content });
   saveNotes(notes, storage);
-  renderNotes();
+  updateStatus("Salvat");
+}, 400);
+
+function createNewFile() {
+  const idx = notes.length + 1;
+  notes = addNote(notes, `Fișier ${idx}`, "");
+  selectedNoteId = notes[0].id;
+  saveNotes(notes, storage);
+  selectNote(selectedNoteId);
+}
+
+function renameSelected() {
+  if (!selectedNoteId) return;
+  const note = notes.find((n) => n.id === selectedNoteId);
+  const newName = prompt("Numele nou al fișierului:", note.title);
+  if (!newName) return;
+  notes = updateNote(notes, selectedNoteId, { title: newName });
+  saveNotes(notes, storage);
+  selectNote(selectedNoteId);
 }
 
 function deleteSelectedNote() {
-  if (!selectedNoteId) {
-    return;
-  }
-
+  if (!selectedNoteId) return;
+  if (!confirm("Ștergi fișierul selectat?")) return;
   notes = deleteNote(notes, selectedNoteId);
   saveNotes(notes, storage);
-  resetForm();
+  resetSelection();
   renderNotes();
-  updateStatus("Notița a fost ștearsă.");
 }
 
-newButton.addEventListener("click", () => {
-  resetForm();
-  renderNotes();
+newButton.addEventListener("click", createNewFile);
+deleteButton.addEventListener("click", deleteSelectedNote);
+renameButton.addEventListener("click", renameSelected);
+
+filterInput?.addEventListener("input", (e) => renderNotes(e.target.value));
+
+canvas?.addEventListener("input", saveCanvasDebounced);
+canvas?.addEventListener("paste", (e) => {
+  setTimeout(saveCanvasDebounced, 50);
 });
 
-deleteButton.addEventListener("click", deleteSelectedNote);
-noteForm.addEventListener("submit", saveCurrentNote);
-
-resetForm();
+// init
+resetSelection();
 renderNotes();

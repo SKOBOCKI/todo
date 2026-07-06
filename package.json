@@ -2,8 +2,8 @@
   "name": "my-electron-app",
   "version": "1.0.0",
   "scripts": {
-    "start": "electron .",
-    "desktop": "electron .",
+    "start": "bash ./launch-app.sh",
+    "desktop": "bash ./launch-app.sh",
     "serve": "node server.js",
     "test": "node --test"
   },
