@@ -11,10 +11,16 @@ const noteList = document.querySelector("#note-list");
 const statusLine = document.querySelector("#status");
 const deleteButton = document.querySelector("#delete-note");
 const newButton = document.querySelector("#new-note");
+const panelNewButton = document.querySelector("#panel-new-note");
 const renameButton = document.querySelector("#rename-note");
 const filterInput = document.querySelector("#filter");
 const fileTitle = document.querySelector("#file-title");
 const canvas = document.querySelector("#canvas");
+const welcome = document.querySelector("#welcome");
+const editorView = document.querySelector("#editor-view");
+const toggleSidebarButton = document.querySelector("#toggle-sidebar");
+const focusSearchButton = document.querySelector("#focus-search");
+const appShell = document.querySelector(".app-shell");
 
 let notes = loadNotes(storage);
 let selectedNoteId = null;
@@ -77,16 +83,27 @@ function renderNotes(filter = "") {
 }
 
 function updateStatus(message) {
-  statusLine.textContent = message;
+  if (statusLine) statusLine.textContent = message;
+}
+
+function showWelcome() {
+  welcome.hidden = false;
+  editorView.hidden = true;
+}
+
+function showEditor() {
+  welcome.hidden = true;
+  editorView.hidden = false;
 }
 
 function resetSelection() {
   selectedNoteId = null;
-  fileTitle.textContent = "(Nicio fișier selectat)";
+  fileTitle.textContent = "Selecteaza o nota";
   canvas.innerHTML = "";
   deleteButton.disabled = true;
   renameButton.disabled = true;
-  updateStatus("Selectează un fișier sau creează unul nou.");
+  showWelcome();
+  updateStatus("Alege o pagina sau creeaza una noua.");
 }
 
 function selectNote(noteId) {
@@ -98,6 +115,7 @@ function selectNote(noteId) {
   canvas.innerText = note.content || "";
   deleteButton.disabled = false;
   renameButton.disabled = false;
+  showEditor();
   updateStatus(`Editezi: ${note.title}`);
   renderNotes(filterInput?.value || "");
 }
@@ -140,10 +158,33 @@ function deleteSelectedNote() {
 }
 
 newButton.addEventListener("click", createNewFile);
+panelNewButton?.addEventListener("click", createNewFile);
 deleteButton.addEventListener("click", deleteSelectedNote);
 renameButton.addEventListener("click", renameSelected);
 
 filterInput?.addEventListener("input", (e) => renderNotes(e.target.value));
+focusSearchButton?.addEventListener("click", () => {
+  appShell?.classList.remove("sidebar-collapsed");
+  filterInput?.focus();
+});
+toggleSidebarButton?.addEventListener("click", () => {
+  appShell?.classList.toggle("sidebar-collapsed");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+
+  if (event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    createNewFile();
+  }
+
+  if (event.key.toLowerCase() === "o") {
+    event.preventDefault();
+    appShell?.classList.remove("sidebar-collapsed");
+    filterInput?.focus();
+  }
+});
 
 canvas?.addEventListener("input", saveCanvasDebounced);
 canvas?.addEventListener("paste", (e) => {

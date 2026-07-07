@@ -3,61 +3,109 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vault Notes</title>
+    <title>Loop Notes</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="workspace">
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">✦</div>
-          <div>
-            <h1>Vault</h1>
-            <p>Spatiu de notite</p>
+    <div class="app-shell">
+      <header class="app-topbar">
+        <div class="topbar-group">
+          <button class="icon-button" id="toggle-sidebar" type="button" title="Ascunde panoul">
+            <span class="icon sidebar-icon"></span>
+          </button>
+          <div class="app-brand">
+            <span class="brand-mark">L</span>
+            <span>Loop Notes</span>
           </div>
         </div>
 
-        <button id="new-note" class="primary-btn" type="button">
-          + Notă nouă
-        </button>
-
-        <div class="sidebar-toolbar">
-          <input id="filter" placeholder="Caută note..." />
+        <div class="topbar-actions">
+          <button class="tool-button" id="focus-search" type="button">
+            <span class="icon search-icon"></span>
+            <span>Cauta</span>
+          </button>
+          <button class="tool-button primary" id="new-note" type="button">
+            <span class="icon plus-icon"></span>
+            <span>Nota noua</span>
+          </button>
         </div>
+      </header>
 
-        <div id="note-list" class="note-list" role="list"></div>
+      <div class="workspace">
+        <nav class="rail" aria-label="Comenzi rapide">
+          <button class="rail-button active" type="button" title="Note">
+            <span class="icon file-stack-icon"></span>
+          </button>
+          <button class="rail-button" type="button" title="Calendar">
+            <span class="icon calendar-icon"></span>
+          </button>
+          <button class="rail-button" type="button" title="Arhiva">
+            <span class="icon archive-icon"></span>
+          </button>
+        </nav>
 
-        <div class="sidebar-actions">
-          <button id="rename-note" type="button" disabled>Redenumire</button>
-          <button id="delete-note" type="button" disabled>Șterge</button>
-        </div>
-      </aside>
-
-      <main class="editor-shell">
-        <header class="topbar">
-          <div class="topbar-left">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
+        <aside class="file-panel" id="file-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Workspace</p>
+              <h1>Notite</h1>
+            </div>
+            <button id="panel-new-note" class="round-button" type="button" title="Nota noua">
+              <span class="icon plus-icon"></span>
+            </button>
           </div>
-          <div class="topbar-title" id="file-title">Selectează o notă</div>
-          <div class="topbar-right">
-            <span id="status" class="status"
-              >Alege o pagină sau creează una nouă.</span
-            >
-          </div>
-        </header>
 
-        <section class="canvas-panel">
-          <div
-            id="canvas"
-            class="canvas"
-            contenteditable="true"
-            spellcheck="false"
-            aria-label="Editor text"
-          ></div>
-        </section>
-      </main>
+          <label class="search-box" for="filter">
+            <span class="icon search-icon"></span>
+            <input id="filter" placeholder="Cauta in note..." />
+          </label>
+
+          <div id="note-list" class="note-list" role="list"></div>
+
+          <div class="panel-footer">
+            <button id="rename-note" class="secondary-button" type="button" disabled>
+              Redenumeste
+            </button>
+            <button id="delete-note" class="secondary-button danger" type="button" disabled>
+              Sterge
+            </button>
+          </div>
+        </aside>
+
+        <main class="work-area">
+          <section class="welcome" id="welcome">
+            <span class="welcome-kicker">Totul intr-un singur loc</span>
+            <h1>Loop</h1>
+            <p>
+              Creeaza note rapide, pastreaza ideile aproape si continua lucrul
+              fara sa cauti prin ferestre.
+            </p>
+            <div class="shortcut-row">
+              <span><kbd>Ctrl</kbd><kbd>N</kbd> nota noua</span>
+              <span><kbd>Ctrl</kbd><kbd>O</kbd> cautare</span>
+            </div>
+          </section>
+
+          <section class="editor-view" id="editor-view" hidden>
+            <div class="editor-title-row">
+              <div>
+                <p class="eyebrow">Fisier curent</p>
+                <h2 id="file-title">Selecteaza o nota</h2>
+              </div>
+              <span id="status" class="status">Alege o pagina sau creeaza una noua.</span>
+            </div>
+            <article class="page-shell">
+              <div
+                id="canvas"
+                class="canvas"
+                contenteditable="true"
+                spellcheck="false"
+                aria-label="Editor text"
+              ></div>
+            </article>
+          </section>
+        </main>
+      </div>
     </div>
 
     <script type="module" src="renderer.js"></script>
