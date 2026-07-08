@@ -10,7 +10,12 @@
     <div class="app-shell">
       <header class="app-topbar">
         <div class="topbar-group">
-          <button class="icon-button" id="toggle-sidebar" type="button" title="Ascunde panoul">
+          <button
+            class="icon-button"
+            id="toggle-sidebar"
+            type="button"
+            title="Ascunde panoul"
+          >
             <span class="icon sidebar-icon"></span>
           </button>
           <div class="app-brand">
@@ -33,42 +38,102 @@
 
       <div class="workspace">
         <nav class="rail" aria-label="Comenzi rapide">
-          <button class="rail-button active" type="button" title="Note">
+          <button
+            class="rail-button active"
+            type="button"
+            title="Note"
+            data-view="notes"
+          >
             <span class="icon file-stack-icon"></span>
           </button>
-          <button class="rail-button" type="button" title="Calendar">
+          <button
+            class="rail-button"
+            type="button"
+            title="To-Do"
+            data-view="todo"
+          >
             <span class="icon calendar-icon"></span>
           </button>
-          <button class="rail-button" type="button" title="Arhiva">
+          <button
+            class="rail-button"
+            type="button"
+            title="Arhiva"
+            data-view="archive"
+          >
             <span class="icon archive-icon"></span>
           </button>
         </nav>
 
         <aside class="file-panel" id="file-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Workspace</p>
-              <h1>Notite</h1>
+          <div id="notes-sidebar" class="sidebar-view">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Workspace</p>
+                <h1>Notite</h1>
+              </div>
+              <button
+                id="panel-new-note"
+                class="round-button"
+                type="button"
+                title="Nota noua"
+              >
+                <span class="icon plus-icon"></span>
+              </button>
             </div>
-            <button id="panel-new-note" class="round-button" type="button" title="Nota noua">
-              <span class="icon plus-icon"></span>
-            </button>
+
+            <label class="search-box" for="filter">
+              <span class="icon search-icon"></span>
+              <input id="filter" placeholder="Cauta in note..." />
+            </label>
+
+            <div id="note-list" class="note-list" role="list"></div>
+
+            <div class="panel-footer">
+              <button
+                id="rename-note"
+                class="secondary-button"
+                type="button"
+                disabled
+              >
+                Redenumeste
+              </button>
+              <button
+                id="delete-note"
+                class="secondary-button danger"
+                type="button"
+                disabled
+              >
+                Sterge
+              </button>
+            </div>
           </div>
 
-          <label class="search-box" for="filter">
-            <span class="icon search-icon"></span>
-            <input id="filter" placeholder="Cauta in note..." />
-          </label>
+          <div id="todo-sidebar" class="sidebar-view" hidden>
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Workspace</p>
+                <h1>To-do</h1>
+              </div>
+              <button
+                id="panel-new-todo"
+                class="round-button"
+                type="button"
+                title="Fișier nou"
+              >
+                <span class="icon plus-icon"></span>
+              </button>
+            </div>
 
-          <div id="note-list" class="note-list" role="list"></div>
+            <div id="todo-sidebar-list" class="todo-sidebar-list"></div>
 
-          <div class="panel-footer">
-            <button id="rename-note" class="secondary-button" type="button" disabled>
-              Redenumeste
-            </button>
-            <button id="delete-note" class="secondary-button danger" type="button" disabled>
-              Sterge
-            </button>
+            <div class="panel-footer">
+              <button id="rename-todo-file" class="secondary-button" type="button" disabled>
+                Redenumeste
+              </button>
+              <button id="delete-todo-file" class="secondary-button danger" type="button" disabled>
+                Sterge
+              </button>
+            </div>
           </div>
         </aside>
 
@@ -87,22 +152,56 @@
           </section>
 
           <section class="editor-view" id="editor-view" hidden>
-            <div class="editor-title-row">
-              <div>
-                <p class="eyebrow">Fisier curent</p>
-                <h2 id="file-title">Selecteaza o nota</h2>
-              </div>
-              <span id="status" class="status">Alege o pagina sau creeaza una noua.</span>
+            <div class="editor-meta">
+              <span id="status" class="status"
+                >Alege o pagina sau creeaza una noua.</span
+              >
             </div>
-            <article class="page-shell">
-              <div
-                id="canvas"
-                class="canvas"
-                contenteditable="true"
-                spellcheck="false"
-                aria-label="Editor text"
-              ></div>
-            </article>
+            <div class="canvas-frame">
+              <div class="canvas-tabs-slot" id="editor-tabs-slot"></div>
+              <article class="page-shell">
+                <div
+                  id="canvas"
+                  class="canvas"
+                  contenteditable="true"
+                  spellcheck="false"
+                  aria-label="Editor text"
+                ></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="todo-view" id="todo-view" hidden>
+            <div class="todo-shell">
+              <div class="canvas-frame">
+                <div class="canvas-tabs-slot" id="todo-tabs-slot"></div>
+                <div class="todo-card">
+                  <div class="todo-header-row">
+                    <div>
+                      <p class="eyebrow">To-do list</p>
+                      <h2 id="todo-view-title">Activități</h2>
+                    </div>
+                    <button
+                      id="add-todo"
+                      class="round-button"
+                      type="button"
+                      title="Adaugă sarcină"
+                    >
+                      <span class="icon plus-icon"></span>
+                    </button>
+                  </div>
+
+                  <label class="todo-input-wrap" for="todo-input">
+                    <input
+                      id="todo-input"
+                      class="todo-input"
+                      placeholder="Scrie o sarcină..."
+                    />
+                  </label>
+                  <ul id="todo-list" class="todo-list" role="list"></ul>
+                </div>
+              </div>
+            </div>
           </section>
         </main>
       </div>
