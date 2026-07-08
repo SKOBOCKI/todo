@@ -17,7 +17,9 @@ const deleteButton = document.querySelector("#delete-note");
 const newButton = document.querySelector("#new-note");
 const panelNewButton = document.querySelector("#panel-new-note");
 const renameButton = document.querySelector("#rename-note");
-const filterInput = document.querySelector("#filter");
+const searchDialog = document.querySelector("#search-dialog");
+const globalSearchInput = document.querySelector("#global-search-input");
+const closeSearchDialogButton = document.querySelector("#close-search-dialog");
 const canvas = document.querySelector("#canvas");
 const welcome = document.querySelector("#welcome");
 const editorView = document.querySelector("#editor-view");
@@ -32,6 +34,8 @@ const panelNewTodoButton = document.querySelector("#panel-new-todo");
 const renameTodoFileButton = document.querySelector("#rename-todo-file");
 const deleteTodoFileButton = document.querySelector("#delete-todo-file");
 const todoViewTitle = document.querySelector("#todo-view-title");
+const todoWelcome = document.querySelector("#todo-welcome");
+const todoShell = document.querySelector("#todo-shell");
 const railButtons = Array.from(document.querySelectorAll(".rail-button"));
 const toggleSidebarButton = document.querySelector("#toggle-sidebar");
 const focusSearchButton = document.querySelector("#focus-search");
@@ -47,6 +51,7 @@ let selectedNoteId = null;
 let todoFiles = [];
 let selectedTodoFileId = null;
 let activeView = "notes";
+let lastCanvasText = "";
 
 const UI_STATE_KEY = "simple-notes-ui-state";
 
@@ -213,7 +218,7 @@ function renderOpenFileTabs() {
   } else if (activeTodoFile) {
     tabsContainer.appendChild(
       buildTab(activeTodoFile.title, showTodoView, () => {
-        showNotesView();
+        resetTodoSelection();
       }),
     );
   } else {
@@ -291,8 +296,13 @@ function renderTodoItems() {
     todoViewTitle.textContent = "Activități";
     todoViewTitle.removeAttribute("contenteditable");
     todoList.innerHTML = "";
+    if (todoWelcome) todoWelcome.hidden = false;
+    if (todoShell) todoShell.hidden = true;
     return;
   }
+
+  if (todoWelcome) todoWelcome.hidden = true;
+  if (todoShell) todoShell.hidden = false;
 
   todoViewTitle.textContent = selectedFile.title;
   todoViewTitle.setAttribute("contenteditable", "true");
@@ -530,6 +540,13 @@ function resetSelection() {
   persistUiState({ selectedNoteId: null, activeView: "notes" });
 }
 
+function resetTodoSelection() {
+  selectedTodoFileId = null;
+  if (todoInput) todoInput.value = "";
+  showTodoView();
+  persistUiState({ selectedTodoFileId: null, activeView: "todo" });
+}
+
 function selectTitleText() {
   if (!canvas) return;
 
@@ -594,23 +611,25 @@ function selectNote(noteId) {
   if (!note) return;
 
   selectedNoteId = note.id;
-  canvas.innerText = buildEditorContent(note.title, note.content);
+  const initialContent = buildEditorContent(note.title, note.content);
+  canvas.innerText = initialContent;
+  lastCanvasText = initialContent;
   deleteButton.disabled = false;
   renameButton.disabled = false;
   showEditor();
   updateStatus(`Editezi: ${note.title}`);
-  renderNotes(filterInput?.value || "");
+  renderNotes("");
   renderOpenFileTabs();
   persistUiState({ selectedNoteId: note.id, activeView: "notes" });
 }
 
 const saveCanvasDebounced = debounce(async () => {
   if (!selectedNoteId) return;
-  const editorText = canvas.innerText.replace(/\u00A0/g, " ");
+  const editorText = lastCanvasText.replace(/\u00A0/g, " ");
   const { title, content } = extractTitleAndContent(editorText);
   notes = updateNote(notes, selectedNoteId, { title, content });
   await persistNotes(notes);
-  renderNotes(filterInput?.value || "");
+  renderNotes("");
   updateStatus("Salvat");
 }, 400);
 
@@ -685,16 +704,135 @@ todoViewTitle?.addEventListener("keydown", (event) => {
   }
 });
 todoViewTitle?.addEventListener("blur", () => {
+  // If the element is hidden (due to switching views), ignore the blur event
+  if (todoViewTitle.offsetWidth === 0 && todoViewTitle.offsetHeight === 0) {
+    return;
+  }
   const selectedFile = getSelectedTodoFile();
   if (!selectedFile) return;
 
   const safeTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
-  if (safeTitle !== selectedFile.title || todoViewTitle.innerText !== safeTitle) {
+  if (
+    safeTitle !== selectedFile.title ||
+    todoViewTitle.innerText !== safeTitle
+  ) {
     todoViewTitle.textContent = safeTitle;
     updateSelectedTodoTitle(safeTitle);
   }
   void saveTodoTitleDebounced();
 });
+
+function searchNotesAndTodos(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) {
+    return {
+      notes: notes,
+      todos: todoFiles
+    };
+  }
+
+  const matchingNotes = notes.filter(note => 
+    note.title.toLowerCase().includes(q) || 
+    note.content.toLowerCase().includes(q)
+  );
+
+  const matchingTodos = todoFiles.filter(todoFile => 
+    todoFile.title.toLowerCase().includes(q) || 
+    todoFile.items.some(item => item.text.toLowerCase().includes(q))
+  );
+
+  return {
+    notes: matchingNotes,
+    todos: matchingTodos
+  };
+}
+
+function renderSearchResults() {
+  const query = globalSearchInput?.value || "";
+  const { notes: matchedNotes, todos: matchedTodos } = searchNotesAndTodos(query);
+
+  const notesList = document.querySelector("#results-notes-list");
+  const todosList = document.querySelector("#results-todos-list");
+  const notesSection = document.querySelector("#results-notes-section");
+  const todosSection = document.querySelector("#results-todos-section");
+  const emptyState = document.querySelector("#search-empty-state");
+  const queryHighlight = document.querySelector("#search-query-highlight");
+
+  if (notesList) notesList.innerHTML = "";
+  if (todosList) todosList.innerHTML = "";
+
+  const totalResults = matchedNotes.length + matchedTodos.length;
+
+  if (totalResults === 0) {
+    if (notesSection) notesSection.hidden = true;
+    if (todosSection) todosSection.hidden = true;
+    if (emptyState) {
+      emptyState.hidden = false;
+      if (queryHighlight) queryHighlight.textContent = query;
+    }
+    return;
+  }
+
+  if (emptyState) emptyState.hidden = true;
+
+  if (matchedNotes.length > 0) {
+    if (notesSection) notesSection.hidden = false;
+    matchedNotes.forEach(note => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+      item.innerHTML = `
+        <span class="icon file-stack-icon"></span>
+        <span class="item-title">${escapeHtml(note.title)}</span>
+        <span class="item-excerpt">${escapeHtml(note.content.substring(0, 40))}</span>
+      `;
+      item.addEventListener("click", () => {
+        selectNote(note.id);
+        showNotesView();
+        closeSearch();
+      });
+      notesList?.appendChild(item);
+    });
+  } else {
+    if (notesSection) notesSection.hidden = true;
+  }
+
+  if (matchedTodos.length > 0) {
+    if (todosSection) todosSection.hidden = false;
+    matchedTodos.forEach(todo => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+      const itemsExcerpt = todo.items.map(i => i.text).join(", ").substring(0, 40);
+      item.innerHTML = `
+        <span class="icon calendar-icon"></span>
+        <span class="item-title">${escapeHtml(todo.title)}</span>
+        <span class="item-excerpt">${escapeHtml(itemsExcerpt)}</span>
+      `;
+      item.addEventListener("click", () => {
+        selectTodoFile(todo.id);
+        showTodoView();
+        closeSearch();
+      });
+      todosList?.appendChild(item);
+    });
+  } else {
+    if (todosSection) todosSection.hidden = true;
+  }
+}
+
+function openSearch() {
+  if (!searchDialog) return;
+  searchDialog.showModal();
+  if (globalSearchInput) {
+    globalSearchInput.value = "";
+    globalSearchInput.focus();
+  }
+  renderSearchResults();
+}
+
+function closeSearch() {
+  if (!searchDialog) return;
+  searchDialog.close();
+}
 
 railButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -707,11 +845,35 @@ railButtons.forEach((button) => {
   });
 });
 
-filterInput?.addEventListener("input", (e) => renderNotes(e.target.value));
 focusSearchButton?.addEventListener("click", () => {
-  appShell?.classList.remove("sidebar-collapsed");
-  filterInput?.focus();
+  openSearch();
 });
+
+if (searchDialog) {
+  closeSearchDialogButton?.addEventListener("click", () => {
+    closeSearch();
+  });
+
+  globalSearchInput?.addEventListener("input", () => {
+    renderSearchResults();
+  });
+
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    searchDialog.addEventListener('click', (event) => {
+      if (event.target !== searchDialog) return;
+      const rect = searchDialog.getBoundingClientRect();
+      const isDialogContent = (
+        rect.top <= event.clientY &&
+        event.clientY <= rect.top + rect.height &&
+        rect.left <= event.clientX &&
+        event.clientX <= rect.left + rect.width
+      );
+      if (isDialogContent) return;
+      closeSearch();
+    });
+  }
+}
+
 toggleSidebarButton?.addEventListener("click", () => {
   appShell?.classList.toggle("sidebar-collapsed");
 });
@@ -726,16 +888,17 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "o") {
     event.preventDefault();
-    appShell?.classList.remove("sidebar-collapsed");
-    filterInput?.focus();
+    openSearch();
   }
 });
 
 canvas?.addEventListener("input", () => {
+  lastCanvasText = canvas.innerText;
   void saveCanvasDebounced();
 });
 canvas?.addEventListener("paste", () => {
   setTimeout(() => {
+    lastCanvasText = canvas.innerText;
     void saveCanvasDebounced();
   }, 50);
 });
@@ -790,16 +953,8 @@ async function initApp() {
     (note) => note.id === persistedState.selectedNoteId,
   )?.id;
 
-  if (persistedState.activeView === "todo" && restoredTodoFileId) {
-    selectedTodoFileId = restoredTodoFileId;
-    renderTodoFilesSidebar();
-    renderTodoItems();
-    showTodoView();
-    return;
-  }
-
   if (persistedState.activeView === "todo") {
-    selectedTodoFileId = todoFiles[0]?.id ?? null;
+    selectedTodoFileId = restoredTodoFileId ?? null;
     renderTodoFilesSidebar();
     renderTodoItems();
     showTodoView();

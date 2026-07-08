@@ -15,49 +15,109 @@ async function loadNotesFromDisk() {
   const notesDir = path.join(getDataDir(), "notes");
   await ensureDir(notesDir);
 
-  const entries = await fs.promises.readdir(notesDir, { withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
   const notes = [];
-  for (const file of files) {
-    const filePath = path.join(notesDir, file.name);
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const { title, content } = parseMarkdownNote(raw, "United");
-    const stat = await fs.promises.stat(filePath);
-    notes.push({
-      id: path.basename(file.name, ".md"),
-      title,
-      content,
-      updatedAt: stat.mtime.toISOString(),
-    });
+  const entries = await fs.promises.readdir(notesDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      const filePath = path.join(notesDir, entry.name);
+      const raw = await fs.promises.readFile(filePath, "utf8");
+      const { title, content } = parseMarkdownNote(raw, "United");
+      const stat = await fs.promises.stat(filePath);
+      notes.push({
+        id: path.basename(entry.name, ".md"),
+        title,
+        content,
+        folder: null,
+        updatedAt: stat.mtime.toISOString(),
+      });
+    } else if (entry.isDirectory()) {
+      const folderName = entry.name;
+      const folderDir = path.join(notesDir, folderName);
+      const subEntries = await fs.promises.readdir(folderDir, { withFileTypes: true });
+      for (const subEntry of subEntries) {
+        if (subEntry.isFile() && subEntry.name.endsWith(".md")) {
+          const filePath = path.join(folderDir, subEntry.name);
+          const raw = await fs.promises.readFile(filePath, "utf8");
+          const { title, content } = parseMarkdownNote(raw, "United");
+          const stat = await fs.promises.stat(filePath);
+          notes.push({
+            id: path.basename(subEntry.name, ".md"),
+            title,
+            content,
+            folder: folderName,
+            updatedAt: stat.mtime.toISOString(),
+          });
+        }
+      }
+    }
   }
 
   return notes.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
 async function saveNotesToDisk(notes) {
-  const { createMarkdownFilesMap } = await import("./notes.mjs");
   const notesDir = path.join(getDataDir(), "notes");
   await ensureDir(notesDir);
 
-  const existingFiles = await fs.promises.readdir(notesDir, {
-    withFileTypes: true,
-  });
-  const fileNames = new Set(
-    existingFiles.filter((entry) => entry.isFile()).map((entry) => entry.name),
-  );
-
-  const markdownFiles = createMarkdownFilesMap(notes);
-  for (const [fileName, content] of Object.entries(markdownFiles)) {
-    const filePath = path.join(notesDir, fileName);
-    await fs.promises.writeFile(filePath, content, "utf8");
-    fileNames.delete(fileName);
+  const existingFiles = [];
+  const entries = await fs.promises.readdir(notesDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      existingFiles.push({ relPath: entry.name, absPath: path.join(notesDir, entry.name) });
+    } else if (entry.isDirectory()) {
+      const subEntries = await fs.promises.readdir(path.join(notesDir, entry.name), { withFileTypes: true });
+      for (const subEntry of subEntries) {
+        if (subEntry.isFile() && subEntry.name.endsWith(".md")) {
+          existingFiles.push({
+            relPath: path.join(entry.name, subEntry.name),
+            absPath: path.join(notesDir, entry.name, subEntry.name)
+          });
+        }
+      }
+    }
   }
 
-  for (const fileName of fileNames) {
-    await fs.promises.rm(path.join(notesDir, fileName), { force: true });
+  const fileNames = new Set(existingFiles.map(f => f.relPath));
+
+  for (const note of notes) {
+    const { serializeNoteToMarkdown } = await import("./notes.mjs");
+    const safeNote = {
+      ...note,
+      id: String(note.id).trim(),
+      title: String(note.title).trim() || "United",
+      content: String(note.content ?? ""),
+    };
+    
+    let relPath = `${safeNote.id}.md`;
+    if (note.folder) {
+      const targetDir = path.join(notesDir, note.folder);
+      await ensureDir(targetDir);
+      relPath = path.join(note.folder, `${safeNote.id}.md`);
+    }
+    
+    const filePath = path.join(notesDir, relPath);
+    await fs.promises.writeFile(filePath, serializeNoteToMarkdown(safeNote), "utf8");
+    fileNames.delete(relPath);
+  }
+
+  for (const relPath of fileNames) {
+    const fileToDelete = existingFiles.find(f => f.relPath === relPath);
+    if (fileToDelete) {
+      await fs.promises.rm(fileToDelete.absPath, { force: true });
+    }
+  }
+
+  // Clean empty subfolders
+  const updatedEntries = await fs.promises.readdir(notesDir, { withFileTypes: true });
+  for (const entry of updatedEntries) {
+    if (entry.isDirectory()) {
+      const folderPath = path.join(notesDir, entry.name);
+      const contents = await fs.promises.readdir(folderPath);
+      if (contents.length === 0) {
+        await fs.promises.rmdir(folderPath);
+      }
+    }
   }
 
   return notes;
@@ -68,23 +128,42 @@ async function loadTodoFilesFromDisk() {
   const todoDir = path.join(getDataDir(), "todo-files");
   await ensureDir(todoDir);
 
-  const entries = await fs.promises.readdir(todoDir, { withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
   const todoFiles = [];
-  for (const file of files) {
-    const filePath = path.join(todoDir, file.name);
-    const raw = await fs.promises.readFile(filePath, "utf8");
-    const { title, items } = parseTodoMarkdown(raw, "United");
-    const stat = await fs.promises.stat(filePath);
-    todoFiles.push({
-      id: path.basename(file.name, ".md"),
-      title,
-      items,
-      updatedAt: stat.mtime.toISOString(),
-    });
+  const entries = await fs.promises.readdir(todoDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      const filePath = path.join(todoDir, entry.name);
+      const raw = await fs.promises.readFile(filePath, "utf8");
+      const { title, items } = parseTodoMarkdown(raw, "United");
+      const stat = await fs.promises.stat(filePath);
+      todoFiles.push({
+        id: path.basename(entry.name, ".md"),
+        title,
+        items,
+        folder: null,
+        updatedAt: stat.mtime.toISOString(),
+      });
+    } else if (entry.isDirectory()) {
+      const folderName = entry.name;
+      const folderDir = path.join(todoDir, folderName);
+      const subEntries = await fs.promises.readdir(folderDir, { withFileTypes: true });
+      for (const subEntry of subEntries) {
+        if (subEntry.isFile() && subEntry.name.endsWith(".md")) {
+          const filePath = path.join(folderDir, subEntry.name);
+          const raw = await fs.promises.readFile(filePath, "utf8");
+          const { title, items } = parseTodoMarkdown(raw, "United");
+          const stat = await fs.promises.stat(filePath);
+          todoFiles.push({
+            id: path.basename(subEntry.name, ".md"),
+            title,
+            items,
+            folder: folderName,
+            updatedAt: stat.mtime.toISOString(),
+          });
+        }
+      }
+    }
   }
 
   return todoFiles.sort(
@@ -98,12 +177,25 @@ async function saveTodoFilesToDisk(todoFiles) {
   const todoDir = path.join(getDataDir(), "todo-files");
   await ensureDir(todoDir);
 
-  const existingFiles = await fs.promises.readdir(todoDir, {
-    withFileTypes: true,
-  });
-  const fileNames = new Set(
-    existingFiles.filter((entry) => entry.isFile()).map((entry) => entry.name),
-  );
+  const existingFiles = [];
+  const entries = await fs.promises.readdir(todoDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      existingFiles.push({ relPath: entry.name, absPath: path.join(todoDir, entry.name) });
+    } else if (entry.isDirectory()) {
+      const subEntries = await fs.promises.readdir(path.join(todoDir, entry.name), { withFileTypes: true });
+      for (const subEntry of subEntries) {
+        if (subEntry.isFile() && subEntry.name.endsWith(".md")) {
+          existingFiles.push({
+            relPath: path.join(entry.name, subEntry.name),
+            absPath: path.join(todoDir, entry.name, subEntry.name)
+          });
+        }
+      }
+    }
+  }
+
+  const fileNames = new Set(existingFiles.map(f => f.relPath));
 
   for (const todoFile of todoFiles) {
     const safeTodoFile = {
@@ -112,17 +204,40 @@ async function saveTodoFilesToDisk(todoFiles) {
       title: String(todoFile.title ?? "").trim() || "United",
       items: Array.isArray(todoFile.items) ? todoFile.items : [],
     };
-    const filePath = path.join(todoDir, `${safeTodoFile.id}.md`);
+    
+    let relPath = `${safeTodoFile.id}.md`;
+    if (todoFile.folder) {
+      const targetDir = path.join(todoDir, todoFile.folder);
+      await ensureDir(targetDir);
+      relPath = path.join(todoFile.folder, `${safeTodoFile.id}.md`);
+    }
+
+    const filePath = path.join(todoDir, relPath);
     await fs.promises.writeFile(
       filePath,
       serializeTodoDocumentToMarkdown(safeTodoFile),
       "utf8",
     );
-    fileNames.delete(`${safeTodoFile.id}.md`);
+    fileNames.delete(relPath);
   }
 
-  for (const fileName of fileNames) {
-    await fs.promises.rm(path.join(todoDir, fileName), { force: true });
+  for (const relPath of fileNames) {
+    const fileToDelete = existingFiles.find(f => f.relPath === relPath);
+    if (fileToDelete) {
+      await fs.promises.rm(fileToDelete.absPath, { force: true });
+    }
+  }
+
+  // Clean empty subfolders
+  const updatedEntries = await fs.promises.readdir(todoDir, { withFileTypes: true });
+  for (const entry of updatedEntries) {
+    if (entry.isDirectory()) {
+      const folderPath = path.join(todoDir, entry.name);
+      const contents = await fs.promises.readdir(folderPath);
+      if (contents.length === 0) {
+        await fs.promises.rmdir(folderPath);
+      }
+    }
   }
 
   return todoFiles;

@@ -81,10 +81,6 @@
               </button>
             </div>
 
-            <label class="search-box" for="filter">
-              <span class="icon search-icon"></span>
-              <input id="filter" placeholder="Cauta in note..." />
-            </label>
 
             <div id="note-list" class="note-list" role="list"></div>
 
@@ -127,10 +123,20 @@
             <div id="todo-sidebar-list" class="todo-sidebar-list"></div>
 
             <div class="panel-footer">
-              <button id="rename-todo-file" class="secondary-button" type="button" disabled>
+              <button
+                id="rename-todo-file"
+                class="secondary-button"
+                type="button"
+                disabled
+              >
                 Redenumeste
               </button>
-              <button id="delete-todo-file" class="secondary-button danger" type="button" disabled>
+              <button
+                id="delete-todo-file"
+                class="secondary-button danger"
+                type="button"
+                disabled
+              >
                 Sterge
               </button>
             </div>
@@ -172,7 +178,19 @@
           </section>
 
           <section class="todo-view" id="todo-view" hidden>
-            <div class="todo-shell">
+            <section class="todo-welcome" id="todo-welcome" hidden>
+              <span class="welcome-kicker">Organizează-ți activitățile</span>
+              <h1>To-Do</h1>
+              <p>
+                Creează liste de sarcini, urmărește progresul și rămâi
+                organizat.
+              </p>
+              <div class="shortcut-row">
+                <span><kbd>Ctrl</kbd><kbd>N</kbd> fișier nou</span>
+                <span><kbd>Ctrl</kbd><kbd>O</kbd> cautare</span>
+              </div>
+            </section>
+            <div class="todo-shell" id="todo-shell">
               <div class="canvas-frame">
                 <div class="canvas-tabs-slot" id="todo-tabs-slot"></div>
                 <div class="todo-card">
@@ -206,6 +224,29 @@
         </main>
       </div>
     </div>
+
+    <dialog id="search-dialog" class="search-dialog" closedby="any" aria-label="Căutare globală">
+      <div class="search-dialog-content">
+        <header class="search-dialog-header">
+          <span class="icon search-icon"></span>
+          <input id="global-search-input" placeholder="Caută în note și liste to-do..." autocomplete="off" />
+          <button id="close-search-dialog" type="button" class="close-button" title="Închide">×</button>
+        </header>
+        <div id="search-results-container" class="search-results-container">
+          <section class="search-results-section" id="results-notes-section" hidden>
+            <h3>Notițe</h3>
+            <div class="results-list" id="results-notes-list"></div>
+          </section>
+          <section class="search-results-section" id="results-todos-section" hidden>
+            <h3>Liste To-Do</h3>
+            <div class="results-list" id="results-todos-list"></div>
+          </section>
+          <div id="search-empty-state" class="search-empty-state" hidden>
+            Niciun rezultat găsit pentru „<span id="search-query-highlight"></span>”
+          </div>
+        </div>
+      </div>
+    </dialog>
 
     <script type="module" src="renderer.js"></script>
   </body>
