@@ -99,7 +99,7 @@ export function deleteNote(notes, noteId) {
   return notes.filter((note) => note.id !== noteId);
 }
 
-export function createTodoDocument(title = "Listă", items = []) {
+export function createTodoDocument(title = "United", items = []) {
   return {
     id: createId(),
     title: String(title ?? "").trim() || "United",

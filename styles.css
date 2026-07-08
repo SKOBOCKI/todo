@@ -97,11 +97,10 @@ button {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid rgba(215, 208, 196, 0.86);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  background: var(--surface);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .editor-view .canvas-frame {
@@ -111,108 +110,144 @@ button {
 .canvas-tabs-slot {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  min-height: 44px;
-  padding: 6px 8px 0;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  background: transparent;
+  overflow: visible;
 }
 
 .canvas-tabs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
+  height: 100%;
 }
 
 .open-file-tabs {
   display: inline-flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
   max-width: 100%;
+  height: 100%;
 }
 
 .open-file-tabs .file-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  flex: 1 1 240px;
-  min-width: 160px;
-  max-width: 320px;
-  padding: 10px 14px;
-  border-radius: 10px 10px 0 0;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1 1 220px;
+  min-width: 150px;
+  max-width: 280px;
+  height: 36px;
+  margin-top: 0;
+  padding: 0 9px 0 14px;
+  border-radius: 8px 8px 0 0;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.1);
-  color: #f7f3eb;
-  font-size: 13px;
-  font-weight: 700;
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--surface) 76%, var(--panel));
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  position: relative;
-  top: 1px;
+  z-index: 1;
 }
 
 .open-file-tabs .file-tab.active {
   background: var(--surface);
-  border-color: transparent;
+  border-color: rgba(215, 208, 196, 0.86);
+  border-bottom-color: var(--surface);
   color: var(--ink);
+  box-shadow: 0 -10px 24px rgba(42, 37, 28, 0.06);
+  z-index: 2;
+}
+
+.open-file-tabs .file-tab.active::before,
+.open-file-tabs .file-tab.active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.open-file-tabs .file-tab.active::before {
+  left: -12px;
+  border-bottom-right-radius: 8px;
+  box-shadow: 6px 6px 0 5px var(--surface);
+}
+
+.open-file-tabs .file-tab.active::after {
+  right: -12px;
+  border-bottom-left-radius: 8px;
+  box-shadow: -6px 6px 0 5px var(--surface);
 }
 
 .open-file-tabs .file-tab.empty {
   opacity: 0.6;
   cursor: default;
+  pointer-events: none;
 }
 
 .tab-label {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab-close-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
   margin: 0;
   padding: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.55);
-  color: var(--ink);
-  font-size: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
 
 .tab-close-button:hover {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--panel);
+  color: var(--ink);
 }
 
 .tab-add-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: center;
+  align-self: stretch;
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 7px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px 8px 0 0;
   border: none;
-  background: rgba(255, 255, 255, 0.18);
-  color: #f7f3eb;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
 }
 
 .tab-add-button:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--surface) 70%, var(--panel));
+  color: var(--ink);
 }
 
-.open-file-tabs .file-tab:hover {
-  background: rgba(255, 255, 255, 0.22);
+.open-file-tabs .file-tab:not(.active):hover {
+  background: color-mix(in srgb, var(--surface) 86%, var(--panel));
+  color: var(--ink);
 }
 
 .app-brand {
@@ -749,9 +784,26 @@ kbd {
   line-height: 1.15;
 }
 
+.todo-header-row h2[contenteditable="true"] {
+  min-width: 1ch;
+  max-width: min(420px, 100%);
+  padding: 2px 4px;
+  border-radius: 6px;
+  outline: none;
+}
+
+.todo-header-row h2[contenteditable="true"]:focus {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .todo-card {
+  min-height: 0;
   padding: 20px;
-  background: transparent;
+  border: 1px solid rgba(215, 208, 196, 0.86);
+  border-radius: 0 11px 11px;
+  box-shadow: var(--shadow);
+  background: var(--surface);
   display: grid;
   gap: 16px;
 }
@@ -837,7 +889,10 @@ kbd {
   min-height: 0;
   height: 100%;
   margin: 0;
-  background: transparent;
+  border: 1px solid rgba(215, 208, 196, 0.86);
+  border-radius: 0 11px 11px;
+  box-shadow: var(--shadow);
+  background: var(--surface);
   overflow: hidden;
 }
 

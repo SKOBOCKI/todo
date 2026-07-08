@@ -226,9 +226,14 @@ function renderOpenFileTabs() {
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "tab-add-button";
-  addButton.title = "Nota noua";
+  addButton.title = activeView === "todo" ? "To-do nou" : "Nota noua";
   addButton.innerHTML = '<span class="icon plus-icon"></span>';
   addButton.addEventListener("click", () => {
+    if (activeView === "todo") {
+      void createNewTodoFile();
+      return;
+    }
+
     void createNewFile();
   });
 
@@ -284,11 +289,14 @@ function renderTodoItems() {
   );
   if (!selectedFile) {
     todoViewTitle.textContent = "Activități";
+    todoViewTitle.removeAttribute("contenteditable");
     todoList.innerHTML = "";
     return;
   }
 
   todoViewTitle.textContent = selectedFile.title;
+  todoViewTitle.setAttribute("contenteditable", "true");
+  todoViewTitle.setAttribute("spellcheck", "false");
   todoList.innerHTML = "";
 
   if (!selectedFile.items?.length) {
@@ -388,10 +396,8 @@ async function createNewTodoFile() {
   selectedTodoFileId = todoFile.id;
   renderTodoFilesSidebar();
   renderTodoItems();
-  if (todoInput) {
-    todoInput.value = "";
-    todoInput.focus();
-  }
+  if (todoInput) todoInput.value = "";
+  focusTodoTitle();
 }
 
 function selectTodoFile(todoFileId) {
@@ -422,6 +428,36 @@ async function renameTodoFile() {
   renderTodoFilesSidebar();
   renderTodoItems();
 }
+
+function getSelectedTodoFile() {
+  return todoFiles.find((todoFile) => todoFile.id === selectedTodoFileId);
+}
+
+function normalizeTodoTitle(title) {
+  return String(title ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function updateSelectedTodoTitle(title) {
+  if (!selectedTodoFileId) return;
+
+  const safeTitle = normalizeTodoTitle(title) || "United";
+  todoFiles = todoFiles.map((todoFile) =>
+    todoFile.id === selectedTodoFileId
+      ? { ...todoFile, title: safeTitle, updatedAt: new Date().toISOString() }
+      : todoFile,
+  );
+}
+
+const saveTodoTitleDebounced = debounce(async () => {
+  if (!selectedTodoFileId) return;
+
+  todoFiles = await persistTodoFiles(todoFiles);
+  renderTodoFilesSidebar();
+  renderOpenFileTabs();
+}, 350);
 
 async function deleteTodoFile() {
   if (!selectedTodoFileId) return;
@@ -529,6 +565,30 @@ function focusCanvasTitle() {
   });
 }
 
+function selectElementText(element) {
+  if (!element) return;
+
+  const selection = window.getSelection();
+  if (!selection) {
+    element.focus();
+    return;
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  element.focus();
+}
+
+function focusTodoTitle() {
+  if (!todoViewTitle) return;
+
+  requestAnimationFrame(() => {
+    selectElementText(todoViewTitle);
+  });
+}
+
 function selectNote(noteId) {
   const note = notes.find((item) => item.id === noteId);
   if (!note) return;
@@ -614,6 +674,27 @@ todoInput?.addEventListener("keydown", (event) => {
     void addTodo();
   }
 });
+todoViewTitle?.addEventListener("input", () => {
+  updateSelectedTodoTitle(todoViewTitle.innerText);
+  void saveTodoTitleDebounced();
+});
+todoViewTitle?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    todoViewTitle.blur();
+  }
+});
+todoViewTitle?.addEventListener("blur", () => {
+  const selectedFile = getSelectedTodoFile();
+  if (!selectedFile) return;
+
+  const safeTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
+  if (safeTitle !== selectedFile.title || todoViewTitle.innerText !== safeTitle) {
+    todoViewTitle.textContent = safeTitle;
+    updateSelectedTodoTitle(safeTitle);
+  }
+  void saveTodoTitleDebounced();
+});
 
 railButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -697,7 +778,7 @@ async function initApp() {
   todoFiles = await loadTodoFilesFromDisk();
 
   if (todoFiles.length === 0) {
-    const defaultTodoFile = createTodoDocument("Listă 1");
+    const defaultTodoFile = createTodoDocument("United");
     todoFiles = await persistTodoFiles([defaultTodoFile]);
   }
 

@@ -90,6 +90,12 @@ test("creates todo documents and adds items", () => {
   assert.equal(updatedDocument.items[0].text, "Pâine");
 });
 
+test("uses United as the default todo title", () => {
+  const todoDocument = createTodoDocument();
+
+  assert.equal(todoDocument.title, "United");
+});
+
 test("serializes and parses note markdown", () => {
   const note = createNote("Titlu test", "Conținut test");
   const markdown = serializeNoteToMarkdown(note);
