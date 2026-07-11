@@ -10,6 +10,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { buildWindowUrl } = require("./window-launch.js");
 
+const dataVersions = {
+  notes: 0,
+  todos: 0,
+};
+
 function getDataDir() {
   return path.join(app.getPath("userData"), "local-notes");
 }
@@ -341,13 +346,32 @@ function getFilePath(type, file) {
     : path.join(baseDir, fileName);
 }
 
+function broadcastDataChanged(sourceWebContents, type) {
+  dataVersions[type] = (dataVersions[type] ?? 0) + 1;
+
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (win.webContents === sourceWebContents || win.webContents.isDestroyed()) {
+      return;
+    }
+
+    win.webContents.send("data:changed", type, dataVersions[type]);
+  });
+}
+
 app.whenReady().then(() => {
   ipcMain.handle("notes:load", loadNotesFromDisk);
-  ipcMain.handle("notes:save", (_event, notes) => saveNotesToDisk(notes));
+  ipcMain.handle("notes:save", async (event, notes) => {
+    const savedNotes = await saveNotesToDisk(notes);
+    broadcastDataChanged(event.sender, "notes");
+    return savedNotes;
+  });
   ipcMain.handle("todos:load", loadTodoFilesFromDisk);
-  ipcMain.handle("todos:save", (_event, todoFiles) =>
-    saveTodoFilesToDisk(todoFiles),
-  );
+  ipcMain.handle("todos:save", async (event, todoFiles) => {
+    const savedTodoFiles = await saveTodoFilesToDisk(todoFiles);
+    broadcastDataChanged(event.sender, "todos");
+    return savedTodoFiles;
+  });
+  ipcMain.handle("data:get-version", () => ({ ...dataVersions }));
   ipcMain.handle("file:get-path", (_event, type, file) =>
     getFilePath(type, file),
   );

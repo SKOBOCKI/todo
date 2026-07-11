@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ro">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,7 +14,7 @@
             class="icon-button"
             id="toggle-sidebar"
             type="button"
-            title="Ascunde panoul"
+            title="Hide sidebar"
             aria-expanded="true"
           >
             <span class="icon sidebar-icon"></span>
@@ -27,7 +27,7 @@
       </header>
 
       <div class="workspace">
-        <nav class="rail" aria-label="Comenzi rapide">
+        <nav class="rail" aria-label="Shortcuts">
           <button
             class="rail-button active"
             type="button"
@@ -44,6 +44,14 @@
           >
             <span class="icon calendar-icon"></span>
           </button>
+          <button
+            class="rail-button"
+            type="button"
+            title="Tags"
+            data-view="tags"
+          >
+            <span class="icon tag-icon"></span>
+          </button>
         </nav>
 
         <aside class="file-panel" id="file-panel">
@@ -51,14 +59,14 @@
             <div class="panel-header">
               <div>
                 <p class="eyebrow">Workspace</p>
-                <h1>Notite</h1>
+                <h1>Notes</h1>
               </div>
               <div class="panel-header-actions">
                 <button
                   class="round-button focus-search"
                   type="button"
-                  title="Caută"
-                  aria-label="Caută"
+                  title="Search"
+                  aria-label="Search"
                 >
                   <span class="icon search-icon"></span>
                 </button>
@@ -66,7 +74,7 @@
                   id="panel-new-folder"
                   class="round-button"
                   type="button"
-                  title="Folder nou"
+                  title="New folder"
                 >
                   <span class="icon folder-plus-icon"></span>
                 </button>
@@ -74,7 +82,7 @@
                   id="panel-new-note"
                   class="round-button"
                   type="button"
-                  title="Nota noua"
+                  title="New note"
                 >
                   <span class="icon plus-icon"></span>
                 </button>
@@ -94,8 +102,8 @@
                 <button
                   class="round-button focus-search"
                   type="button"
-                  title="Caută"
-                  aria-label="Caută"
+                  title="Search"
+                  aria-label="Search"
                 >
                   <span class="icon search-icon"></span>
                 </button>
@@ -103,7 +111,7 @@
                   id="panel-new-todo-folder"
                   class="round-button"
                   type="button"
-                  title="Folder nou"
+                  title="New folder"
                 >
                   <span class="icon folder-plus-icon"></span>
                 </button>
@@ -111,7 +119,7 @@
                   id="panel-new-todo"
                   class="round-button"
                   type="button"
-                  title="Fișier nou"
+                  title="New file"
                 >
                   <span class="icon plus-icon"></span>
                 </button>
@@ -120,19 +128,34 @@
 
             <div id="todo-sidebar-list" class="todo-sidebar-list"></div>
           </div>
+
+          <div id="tags-sidebar" class="sidebar-view" hidden>
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Workspace</p>
+                <h1>Tags</h1>
+              </div>
+            </div>
+            <div
+              id="tags-todo-file-list"
+              class="todo-sidebar-list"
+              role="list"
+            ></div>
+          </div>
         </aside>
 
         <main class="work-area">
+          <div class="canvas-tabs-slot welcome-tabs-slot" id="welcome-tabs-slot"></div>
           <section class="welcome" id="welcome">
-            <span class="welcome-kicker">Totul intr-un singur loc</span>
+            <span class="welcome-kicker">Everything in one place</span>
             <h1>Loop</h1>
             <p>
-              Creeaza note rapide, pastreaza ideile aproape si continua lucrul
-              fara sa cauti prin ferestre.
+              Create quick notes, keep ideas close, and continue working
+              without searching through windows.
             </p>
             <div class="shortcut-row">
-              <span><kbd>Ctrl</kbd><kbd>N</kbd> nota noua</span>
-              <span><kbd>Ctrl</kbd><kbd>O</kbd> cautare</span>
+              <span><kbd>Ctrl</kbd><kbd>N</kbd> new note</span>
+              <span><kbd>Ctrl</kbd><kbd>O</kbd> search</span>
             </div>
           </section>
 
@@ -148,7 +171,7 @@
                       class="canvas"
                       contenteditable="true"
                       spellcheck="false"
-                      aria-label="Editor text"
+                      aria-label="Text editor"
                     ></div>
                   </article>
                 </div>
@@ -162,13 +185,13 @@
                 <div class="canvas-frame right-canvas-frame">
                   <div class="canvas-side-header">
                     <div class="canvas-side-title">
-                      <span id="right-canvas-title">Canvas dreapta</span>
+                      <span id="right-canvas-title">Right canvas</span>
                     </div>
                     <button
                       type="button"
                       id="close-right-pane"
                       class="close-right-pane"
-                      title="Închide canvas dreapta"
+                      title="Close right canvas"
                     >
                       ×
                     </button>
@@ -179,7 +202,7 @@
                       class="canvas canvas-right"
                       contenteditable="true"
                       spellcheck="false"
-                      aria-label="Editor text dreapta"
+                      aria-label="Right text editor"
                     ></div>
                   </article>
                 </div>
@@ -189,15 +212,14 @@
 
           <section class="todo-view" id="todo-view" hidden>
             <section class="todo-welcome" id="todo-welcome" hidden>
-              <span class="welcome-kicker">Organizează-ți activitățile</span>
+              <span class="welcome-kicker">Organize your tasks</span>
               <h1>To-Do</h1>
               <p>
-                Creează liste de sarcini, urmărește progresul și rămâi
-                organizat.
+                Create task lists, track progress, and stay organized.
               </p>
               <div class="shortcut-row">
-                <span><kbd>Ctrl</kbd><kbd>N</kbd> fișier nou</span>
-                <span><kbd>Ctrl</kbd><kbd>O</kbd> cautare</span>
+                <span><kbd>Ctrl</kbd><kbd>N</kbd> new file</span>
+                <span><kbd>Ctrl</kbd><kbd>O</kbd> search</span>
               </div>
             </section>
             <div class="todo-shell" id="todo-shell">
@@ -207,13 +229,13 @@
                   <div class="todo-header-row">
                     <div>
                       <p class="eyebrow">To-do list</p>
-                      <h2 id="todo-view-title">Activități</h2>
+                      <h2 id="todo-view-title">Tasks</h2>
                     </div>
                     <button
                       id="add-todo"
                       class="round-button"
                       type="button"
-                      title="Adaugă sarcină"
+                      title="Add task"
                     >
                       <span class="icon plus-icon"></span>
                     </button>
@@ -223,12 +245,32 @@
                     <input
                       id="todo-input"
                       class="todo-input"
-                      placeholder="Scrie o sarcină..."
+                      placeholder="Write a task..."
                     />
                   </label>
                   <ul id="todo-list" class="todo-list" role="list"></ul>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section class="tag-settings-view" id="tag-settings-view" hidden>
+            <div class="tag-settings-shell">
+              <div class="tag-settings-header">
+                <div>
+                  <p class="eyebrow">To-do tags</p>
+                  <h2>Categories</h2>
+                </div>
+                <button
+                  id="add-tag-category"
+                  class="round-button"
+                  type="button"
+                  title="New category"
+                >
+                  <span class="icon plus-icon"></span>
+                </button>
+              </div>
+              <div id="tag-category-list" class="tag-category-list"></div>
             </div>
           </section>
         </main>
@@ -239,21 +281,21 @@
       id="search-dialog"
       class="dialog-modal search-dialog"
       closedby="any"
-      aria-label="Căutare globală"
+      aria-label="Global search"
     >
       <div class="search-dialog-content">
         <header class="search-dialog-header">
           <span class="icon search-icon"></span>
           <input
             id="global-search-input"
-            placeholder="Caută în note și liste to-do..."
+            placeholder="Search notes and to-do lists..."
             autocomplete="off"
           />
           <button
             id="close-search-dialog"
             type="button"
             class="close-button"
-            title="Închide"
+            title="Close"
           ></button>
         </header>
         <div id="search-results-container" class="search-results-container">
@@ -262,7 +304,7 @@
             id="results-notes-section"
             hidden
           >
-            <h3>Notițe</h3>
+            <h3>Notes</h3>
             <div class="results-list" id="results-notes-list"></div>
           </section>
           <section
@@ -275,13 +317,13 @@
           </section>
           <div id="search-empty-state" class="search-empty-state" hidden>
             <p>
-              Niciun rezultat găsit pentru „<span
+              No results found for "<span
                 id="search-query-highlight"
               ></span
-              >”
+              >"
             </p>
             <p class="search-create-hint">
-              Apasă Enter pentru a crea fișierul.
+              Press Enter to create the file.
             </p>
           </div>
         </div>
@@ -291,23 +333,23 @@
     <dialog
       id="folder-move-dialog"
       class="dialog-modal folder-move-dialog"
-      aria-label="Mutare în folder"
+      aria-label="Move to folder"
     >
       <div class="folder-move-dialog-content">
-        <h2>Mută în folder</h2>
+        <h2>Move to folder</h2>
         <form method="dialog" id="folder-move-form">
           <div class="form-group">
-            <label for="move-folder-select">Selectează folderul:</label>
+            <label for="move-folder-select">Select folder:</label>
             <select id="move-folder-select">
               <!-- Options populated dynamically -->
             </select>
           </div>
           <div class="dialog-actions">
             <button type="button" id="cancel-move-btn" class="secondary-button">
-              Anulează
+              Cancel
             </button>
             <button type="submit" id="confirm-move-btn" class="primary-button">
-              Mută
+              Move
             </button>
           </div>
         </form>
@@ -317,13 +359,13 @@
     <dialog
       id="folder-input-dialog"
       class="dialog-modal folder-move-dialog"
-      aria-label="Introducere text"
+      aria-label="Text input"
     >
       <div class="folder-move-dialog-content">
-        <h2 id="input-dialog-title">Nume folder</h2>
+        <h2 id="input-dialog-title">Folder name</h2>
         <form method="dialog" id="folder-input-form">
           <div class="form-group">
-            <label for="dialog-text-input" id="input-dialog-label">Nume:</label>
+            <label for="dialog-text-input" id="input-dialog-label">Name:</label>
             <input
               type="text"
               id="dialog-text-input"
@@ -346,10 +388,10 @@
               id="cancel-input-btn"
               class="secondary-button"
             >
-              Anulează
+              Cancel
             </button>
             <button type="submit" id="confirm-input-btn" class="primary-button">
-              Salvează
+              Save
             </button>
           </div>
         </form>
@@ -359,12 +401,12 @@
     <dialog
       id="folder-delete-dialog"
       class="dialog-modal folder-move-dialog"
-      aria-label="Ștergere folder"
+      aria-label="Delete folder"
     >
       <div class="folder-move-dialog-content">
-        <h2>Șterge folderul</h2>
+        <h2>Delete folder</h2>
         <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px">
-          Cum dorești să ștergi folderul
+          How do you want to delete the folder
           <strong id="delete-folder-name-display"></strong>?
         </p>
         <div style="display: flex; flex-direction: column; gap: 10px">
@@ -374,7 +416,7 @@
             class="primary-button"
             style="background: var(--danger); text-align: left; width: 100%"
           >
-            1. Șterge folderul și toate fișierele din el
+            1. Delete the folder and all files inside it
           </button>
           <button
             type="button"
@@ -387,7 +429,7 @@
               color: var(--ink);
             "
           >
-            2. Șterge doar folderul (mută fișierele în root)
+            2. Delete only the folder (move files to root)
           </button>
           <button
             type="button"
@@ -395,7 +437,7 @@
             class="secondary-button"
             style="text-align: center; margin-top: 10px; width: 100%"
           >
-            Anulează
+            Cancel
           </button>
         </div>
       </div>
@@ -439,7 +481,7 @@
       </button>
       <div class="context-menu-separator"></div>
       <button class="context-menu-item" data-action="rename" role="menuitem">
-        Redenumeste
+        Rename
       </button>
       <div class="context-menu-separator"></div>
       <button
@@ -447,13 +489,13 @@
         data-action="delete"
         role="menuitem"
       >
-        Șterge
+        Delete
       </button>
     </div>
 
     <div id="todo-item-context-menu" class="context-menu" role="menu" hidden>
       <div
-        class="context-menu-item context-menu-submenu-trigger"
+        class="context-menu-item context-menu-submenu-trigger context-menu-priority-trigger"
         role="menuitem"
         aria-haspopup="true"
         aria-expanded="false"
@@ -470,48 +512,10 @@
         <div
           class="priority-submenu"
           role="menu"
-          aria-label="Selectează prioritatea"
-        >
-          <button
-            class="context-menu-item priority-option"
-            data-action="priority-high"
-            role="menuitemradio"
-          >
-            <span class="priority-dot priority-dot-high"></span>
-            High
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <button
-            class="context-menu-item priority-option"
-            data-action="priority-medium"
-            role="menuitemradio"
-          >
-            <span class="priority-dot priority-dot-medium"></span>
-            Medium
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <button
-            class="context-menu-item priority-option"
-            data-action="priority-low"
-            role="menuitemradio"
-          >
-            <span class="priority-dot priority-dot-low"></span>
-            Low
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <div class="context-menu-separator"></div>
-          <button
-            class="context-menu-item priority-option"
-            data-action="priority-none"
-            role="menuitemradio"
-          >
-            <span class="priority-dot priority-dot-none"></span>
-            No priority
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-        </div>
+          aria-label="Select priority"
+        ></div>
       </div>
-      <div class="context-menu-separator"></div>
+      <div class="context-menu-separator tags-menu-separator"></div>
       <div
         class="context-menu-item context-menu-submenu-trigger context-menu-tags-trigger"
         role="menuitem"
@@ -530,7 +534,7 @@
         <div
           class="priority-submenu tag-submenu"
           role="menu"
-          aria-label="Selectează etichetele"
+          aria-label="Select tags"
         >
           <div class="tag-group">
             <div class="tag-group-label">Work Type</div>
@@ -958,7 +962,7 @@
           </button>
         </div>
       </div>
-      <div class="context-menu-separator"></div>
+      <div class="context-menu-separator due-menu-separator"></div>
       <div
         class="context-menu-item context-menu-submenu-trigger context-menu-due-trigger"
         role="menuitem"
@@ -977,60 +981,8 @@
         <div
           class="priority-submenu due-submenu"
           role="menu"
-          aria-label="Selectează timpul limită"
-        >
-          <button
-            class="context-menu-item due-option"
-            data-action="set-due"
-            data-due="Today"
-            role="menuitemradio"
-          >
-            <span class="due-dot due-dot-today"></span>
-            Today
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <button
-            class="context-menu-item due-option"
-            data-action="set-due"
-            data-due="Tomorrow"
-            role="menuitemradio"
-          >
-            <span class="due-dot due-dot-tomorrow"></span>
-            Tomorrow
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <button
-            class="context-menu-item due-option"
-            data-action="set-due"
-            data-due="This Week"
-            role="menuitemradio"
-          >
-            <span class="due-dot due-dot-week"></span>
-            This Week
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <button
-            class="context-menu-item due-option"
-            data-action="set-due"
-            data-due="Next Week"
-            role="menuitemradio"
-          >
-            <span class="due-dot due-dot-week"></span>
-            Next Week
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-          <div class="context-menu-separator"></div>
-          <button
-            class="context-menu-item due-option"
-            data-action="set-due"
-            data-due=""
-            role="menuitemradio"
-          >
-            <span class="due-dot"></span>
-            None
-            <span class="priority-check" aria-hidden="true"></span>
-          </button>
-        </div>
+          aria-label="Select due time"
+        ></div>
       </div>
       <div class="context-menu-separator"></div>
       <button class="context-menu-item" data-action="move-up" role="menuitem">

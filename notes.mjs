@@ -78,7 +78,7 @@ export function loadNotes(storage = null) {
 export function saveNotes(notes, storage = null) {
   const normalized = notes.map((note) => ({
     ...note,
-    title: note.title?.trim() || "Notă nouă",
+    title: note.title?.trim() || "New note",
     content: note.content ?? "",
   }));
 

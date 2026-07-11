@@ -12,4 +12,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("file:show-in-folder", type, file),
   openInNewWindow: (view, id) =>
     ipcRenderer.invoke("window:open-solo", view, id),
+  getDataVersion: () => ipcRenderer.invoke("data:get-version"),
+  onDataChanged: (callback) => {
+    if (typeof callback !== "function") return () => {};
+
+    const listener = (_event, type, version) => callback(type, version);
+    ipcRenderer.on("data:changed", listener);
+    return () => ipcRenderer.removeListener("data:changed", listener);
+  },
 });

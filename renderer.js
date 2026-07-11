@@ -25,10 +25,13 @@ const canvas = document.querySelector("#canvas");
 const welcome = document.querySelector("#welcome");
 const editorView = document.querySelector("#editor-view");
 const todoView = document.querySelector("#todo-view");
+const tagSettingsView = document.querySelector("#tag-settings-view");
 const notesSidebar = document.querySelector("#notes-sidebar");
 const todoSidebar = document.querySelector("#todo-sidebar");
+const tagsSidebar = document.querySelector("#tags-sidebar");
 const todoList = document.querySelector("#todo-list");
 const todoSidebarList = document.querySelector("#todo-sidebar-list");
+const tagsTodoFileList = document.querySelector("#tags-todo-file-list");
 const todoInput = document.querySelector("#todo-input");
 const addTodoButton = document.querySelector("#add-todo");
 const panelNewTodoButton = document.querySelector("#panel-new-todo");
@@ -48,6 +51,7 @@ openFileTabs.id = "open-file-tabs";
 openFileTabs.className = "canvas-tabs";
 const editorTabsSlot = document.querySelector("#editor-tabs-slot");
 const todoTabsSlot = document.querySelector("#todo-tabs-slot");
+const welcomeTabsSlot = document.querySelector("#welcome-tabs-slot");
 const rightEditorColumn = document.querySelector("#right-editor-column");
 const rightCanvas = document.querySelector("#canvas-right");
 const rightCanvasTitle = document.querySelector("#right-canvas-title");
@@ -55,6 +59,8 @@ const closeRightPaneButton = document.querySelector("#close-right-pane");
 const appShell = document.querySelector(".app-shell");
 const contextMenu = document.querySelector("#file-context-menu");
 const todoItemContextMenu = document.querySelector("#todo-item-context-menu");
+const addTagCategoryButton = document.querySelector("#add-tag-category");
+const tagCategoryList = document.querySelector("#tag-category-list");
 
 const launchQuery = new URLSearchParams(window.location.search);
 const isSoloWindow = launchQuery.get("solo") === "1";
@@ -75,6 +81,14 @@ let openNoteIds = [];
 let openTodoFileIds = [];
 let activeNoteTabIndex = 0;
 let activeTodoTabIndex = 0;
+let selectedTagTodoFileId = null;
+const DEFAULT_NOTE_TAB_ID = "__default_note_page__";
+const DRAFT_NOTE_TAB_ID = "__draft_note_page__";
+let knownDataVersions = {
+  notes: 0,
+  todos: 0,
+};
+let draftNoteContent = "";
 
 const moveNoteButton = document.querySelector("#move-note");
 const moveTodoFileButton = document.querySelector("#move-todo-file");
@@ -103,10 +117,10 @@ const cancelDeleteFolderBtn = document.querySelector(
 );
 
 const priorityMenuTrigger = todoItemContextMenu?.querySelector(
-  ".context-menu-submenu-trigger",
+  ".context-menu-priority-trigger",
 );
 const prioritySubmenu = todoItemContextMenu?.querySelector(".priority-submenu");
-const priorityOptions = Array.from(
+let priorityOptions = Array.from(
   todoItemContextMenu?.querySelectorAll(".priority-option") ?? [],
 );
 const currentPriorityLabel = document.querySelector(
@@ -116,7 +130,7 @@ const tagsMenuTrigger = todoItemContextMenu?.querySelector(
   ".context-menu-tags-trigger",
 );
 const tagsSubmenu = todoItemContextMenu?.querySelector(".tag-submenu");
-const tagOptions = Array.from(
+let tagOptions = Array.from(
   todoItemContextMenu?.querySelectorAll(".tag-option") ?? [],
 );
 const currentTagsLabel = document.querySelector("#context-menu-current-tags");
@@ -125,7 +139,7 @@ const dueMenuTrigger = todoItemContextMenu?.querySelector(
   ".context-menu-due-trigger",
 );
 const dueSubmenu = todoItemContextMenu?.querySelector(".due-submenu");
-const dueOptions = Array.from(
+let dueOptions = Array.from(
   todoItemContextMenu?.querySelectorAll(".due-option") ?? [],
 );
 const currentDueLabel = document.querySelector("#context-menu-current-due");
@@ -135,6 +149,914 @@ const PRIORITY_LABELS = {
   medium: "Medium",
   low: "Low",
 };
+const DEFAULT_PRIORITY_OPTIONS = [
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];
+const DEFAULT_DUE_OPTIONS = ["Today", "Tomorrow", "This Week", "Next Week", ""];
+const PRIORITY_OPTIONS_KEY = "loop-priority-options";
+const DUE_OPTIONS_KEY = "loop-due-options";
+const TAG_SETTINGS_KEY = "loop-todo-tag-settings";
+const TAG_SETTINGS_BY_FILE_KEY = "loop-todo-tag-settings-by-file";
+const CONTEXT_CATEGORY_SETTINGS_KEY = "loop-context-category-settings";
+const DEFAULT_TAG_COLOR = "#4f7cac";
+
+function normalizeTagEntry(tag) {
+  if (tag && typeof tag === "object") {
+    return {
+      name: String(tag.name ?? "")
+        .trim()
+        .replace(/\s+/g, " "),
+      color: /^#[0-9a-f]{6}$/i.test(String(tag.color ?? ""))
+        ? String(tag.color)
+        : DEFAULT_TAG_COLOR,
+    };
+  }
+
+  return {
+    name: String(tag ?? "")
+      .trim()
+      .replace(/\s+/g, " "),
+    color: DEFAULT_TAG_COLOR,
+  };
+}
+
+function readDueOptions() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DUE_OPTIONS_KEY));
+    if (Array.isArray(parsed)) {
+      return parsed.map((option) => String(option).trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall back to defaults.
+  }
+
+  return DEFAULT_DUE_OPTIONS.filter(Boolean);
+}
+
+function readPriorityOptions() {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(PRIORITY_OPTIONS_KEY),
+    );
+    if (Array.isArray(parsed)) {
+      const validValues = new Set(
+        DEFAULT_PRIORITY_OPTIONS.map((option) => option.value),
+      );
+      return parsed
+        .map((value) => String(value).trim().toLowerCase())
+        .filter((value) => validValues.has(value));
+    }
+  } catch {
+    // Fall back to defaults.
+  }
+
+  return DEFAULT_PRIORITY_OPTIONS.map((option) => option.value);
+}
+
+let priorityCategoryOptions = readPriorityOptions();
+let dueCategoryOptions = readDueOptions();
+
+function persistPriorityOptions() {
+  try {
+    window.localStorage.setItem(
+      PRIORITY_OPTIONS_KEY,
+      JSON.stringify(priorityCategoryOptions),
+    );
+  } catch {
+    // Ignore storage errors; the current session still updates.
+  }
+}
+
+function persistDueOptions() {
+  try {
+    window.localStorage.setItem(DUE_OPTIONS_KEY, JSON.stringify(dueCategoryOptions));
+  } catch {
+    // Ignore storage errors; the current session still updates.
+  }
+}
+
+function readContextCategorySettings() {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CONTEXT_CATEGORY_SETTINGS_KEY) || "null",
+    );
+    if (parsed && typeof parsed === "object") {
+      return {
+        priority: parsed.priority !== false,
+        due: parsed.due !== false,
+      };
+    }
+  } catch {
+    // Fall back to defaults.
+  }
+
+  return {
+    priority: true,
+    due: true,
+  };
+}
+
+let contextCategorySettings = readContextCategorySettings();
+
+function persistContextCategorySettings() {
+  try {
+    window.localStorage.setItem(
+      CONTEXT_CATEGORY_SETTINGS_KEY,
+      JSON.stringify(contextCategorySettings),
+    );
+  } catch {
+    // Ignore storage errors; the current session still updates.
+  }
+}
+
+function readDefaultTagCategoriesFromMenu() {
+  const groups = Array.from(tagsSubmenu?.querySelectorAll(".tag-group") ?? []);
+  return groups
+    .map((group, index) => {
+      const name =
+        group.querySelector(".tag-group-label")?.textContent?.trim() ||
+        `Category ${index + 1}`;
+      const tags = Array.from(group.querySelectorAll(".tag-option"))
+        .map((option) => String(option.dataset.tag ?? "").split(":").pop())
+        .map(normalizeTagEntry)
+        .filter((tag) => tag.name);
+
+      return {
+        id: createFileId(),
+        name,
+        tags,
+        pinned: index < 2,
+      };
+    })
+    .filter((category) => category.tags.length > 0);
+}
+
+function readTagSettings() {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(TAG_SETTINGS_KEY) || "null",
+    );
+    if (Array.isArray(parsed) && parsed.length) {
+      return parsed
+        .map((category) => ({
+          id: String(category.id || createFileId()),
+          name: String(category.name || "Category").trim() || "Category",
+          tags: Array.isArray(category.tags)
+            ? category.tags
+                .map(normalizeTagEntry)
+                .filter((tag) => tag.name)
+            : [],
+          pinned: Boolean(category.pinned),
+        }))
+        .filter((category) => category.tags.length > 0);
+    }
+  } catch {
+    // Fall back to the built-in menu categories.
+  }
+
+  return readDefaultTagCategoriesFromMenu();
+}
+
+let tagCategories = readTagSettings();
+
+function normalizeTagCategory(category) {
+  return {
+    id: String(category?.id || createFileId()),
+    name: String(category?.name || "Category").trim() || "Category",
+    tags: Array.isArray(category?.tags)
+      ? category.tags.map(normalizeTagEntry).filter((tag) => tag.name)
+      : [],
+    pinned: Boolean(category?.pinned),
+  };
+}
+
+function cloneTagCategories(categories = tagCategories) {
+  return categories.map((category) => ({
+    ...normalizeTagCategory(category),
+    tags: category.tags.map(normalizeTagEntry),
+  }));
+}
+
+function readTagSettingsByFile() {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(TAG_SETTINGS_BY_FILE_KEY) || "null",
+    );
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed).map(([fileId, categories]) => [
+          fileId,
+          Array.isArray(categories)
+            ? categories
+                .map(normalizeTagCategory)
+                .filter((category) => category.tags.length > 0)
+            : [],
+        ]),
+      );
+    }
+  } catch {
+    // Fall back to empty per-file settings.
+  }
+
+  return {};
+}
+
+let tagCategoriesByFile = readTagSettingsByFile();
+
+function persistTagSettingsByFile() {
+  try {
+    window.localStorage.setItem(
+      TAG_SETTINGS_BY_FILE_KEY,
+      JSON.stringify(tagCategoriesByFile),
+    );
+  } catch {
+    // Ignore storage errors; the current session still updates.
+  }
+}
+
+function persistTagSettings() {
+  try {
+    window.localStorage.setItem(TAG_SETTINGS_KEY, JSON.stringify(tagCategories));
+  } catch {
+    // Ignore storage errors; the current session still updates.
+  }
+}
+
+function getTagCategoriesForTodoFile(fileId) {
+  if (!fileId) return tagCategories;
+
+  if (!Array.isArray(tagCategoriesByFile[fileId])) {
+    tagCategoriesByFile[fileId] = cloneTagCategories();
+    persistTagSettingsByFile();
+  }
+
+  return tagCategoriesByFile[fileId];
+}
+
+function setTagCategoriesForTodoFile(fileId, categories) {
+  if (!fileId) {
+    tagCategories = categories;
+    persistTagSettings();
+    return;
+  }
+
+  tagCategoriesByFile[fileId] = categories
+    .map(normalizeTagCategory)
+    .filter((category) => category.tags.length > 0);
+  persistTagSettingsByFile();
+}
+
+function getContextTagCategories() {
+  return getTagCategoriesForTodoFile(selectedTodoFileId || selectedTagTodoFileId);
+}
+
+function getTagName(tag) {
+  return normalizeTagEntry(tag).name;
+}
+
+function getTagColor(tag) {
+  return normalizeTagEntry(tag).color;
+}
+
+function getTagValue(categoryName, tag) {
+  return `${categoryName}:${getTagName(tag)}`;
+}
+
+function findTagColorByValue(tagValue) {
+  const [categoryName, ...tagNameParts] = String(tagValue ?? "").split(":");
+  const tagName = tagNameParts.join(":").trim();
+  const category = tagCategories.find((item) => item.name === categoryName);
+  const tag = category?.tags
+    .map(normalizeTagEntry)
+    .find((item) => item.name === tagName);
+  return tag?.color ?? DEFAULT_TAG_COLOR;
+}
+
+function createPriorityOptionButton(option) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "context-menu-item priority-option";
+  button.dataset.action = option.value
+    ? `priority-${option.value}`
+    : "priority-none";
+  button.setAttribute("role", "menuitemradio");
+
+  const dot = document.createElement("span");
+  dot.className = `priority-dot priority-dot-${option.value || "none"}`;
+  const check = document.createElement("span");
+  check.className = "priority-check";
+  check.setAttribute("aria-hidden", "true");
+
+  button.append(dot, option.label, check);
+  return button;
+}
+
+function createDueOptionButton(value) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "context-menu-item due-option";
+  button.dataset.action = "set-due";
+  button.dataset.due = value;
+  button.setAttribute("role", "menuitemradio");
+
+  const normalizedValue = value.toLowerCase();
+  const dot = document.createElement("span");
+  dot.className = [
+    "due-dot",
+    normalizedValue === "today" ? "due-dot-today" : "",
+    normalizedValue === "tomorrow" ? "due-dot-tomorrow" : "",
+    normalizedValue.includes("week") ? "due-dot-week" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const check = document.createElement("span");
+  check.className = "priority-check";
+  check.setAttribute("aria-hidden", "true");
+
+  button.append(dot, value || "None", check);
+  return button;
+}
+
+function renderPriorityContextMenu() {
+  if (!prioritySubmenu) return;
+
+  prioritySubmenu.innerHTML = "";
+  priorityCategoryOptions.forEach((value) => {
+    const option = DEFAULT_PRIORITY_OPTIONS.find((item) => item.value === value);
+    if (!option) return;
+    prioritySubmenu.appendChild(createPriorityOptionButton(option));
+  });
+  const separator = document.createElement("div");
+  separator.className = "context-menu-separator";
+  prioritySubmenu.appendChild(separator);
+  prioritySubmenu.appendChild(
+    createPriorityOptionButton({ value: "", label: "No priority" }),
+  );
+
+  priorityOptions = Array.from(
+    todoItemContextMenu?.querySelectorAll(".priority-option") ?? [],
+  );
+}
+
+function renderDueContextMenu() {
+  if (!dueSubmenu) return;
+
+  dueSubmenu.innerHTML = "";
+  dueCategoryOptions.forEach((option) => {
+    dueSubmenu.appendChild(createDueOptionButton(option));
+  });
+
+  const separator = document.createElement("div");
+  separator.className = "context-menu-separator";
+  dueSubmenu.appendChild(separator);
+  dueSubmenu.appendChild(createDueOptionButton(""));
+
+  dueOptions = Array.from(
+    todoItemContextMenu?.querySelectorAll(".due-option") ?? [],
+  );
+}
+
+function createTagOptionButton(categoryName, tag) {
+  const tagName = getTagName(tag);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "context-menu-item tag-option";
+  button.dataset.action = "toggle-tag";
+  button.dataset.tag = getTagValue(categoryName, tag);
+  button.setAttribute("role", "menuitemcheckbox");
+
+  const dot = document.createElement("span");
+  dot.className = "tag-color-dot";
+  dot.style.backgroundColor = getTagColor(tag);
+  const label = document.createElement("span");
+  label.textContent = tagName;
+
+  button.append(dot, label);
+  return button;
+}
+
+function createTagGroupElement(category) {
+  const group = document.createElement("div");
+  group.className = "tag-group";
+
+  const label = document.createElement("div");
+  label.className = "tag-group-label";
+  label.textContent = category.name;
+  group.appendChild(label);
+
+  category.tags.forEach((tag) => {
+    group.appendChild(createTagOptionButton(category.name, tag));
+  });
+
+  return group;
+}
+
+function createTagCategoryDropdown(category) {
+  const trigger = document.createElement("div");
+  trigger.className =
+    "context-menu-item context-menu-submenu-trigger quick-tag-dropdown";
+  trigger.setAttribute("role", "menuitem");
+  trigger.setAttribute("aria-haspopup", "true");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.tabIndex = 0;
+
+  const label = document.createElement("span");
+  label.className = "context-menu-item-label";
+  label.textContent = category.name;
+
+  const count = document.createElement("span");
+  count.className = "context-menu-current-priority";
+  count.textContent = `${category.tags.length}`;
+
+  const chevron = document.createElement("span");
+  chevron.className = "context-menu-chevron";
+  chevron.setAttribute("aria-hidden", "true");
+
+  const submenu = document.createElement("div");
+  submenu.className = "priority-submenu quick-tag-submenu";
+  submenu.setAttribute("role", "menu");
+  submenu.setAttribute("aria-label", category.name);
+  category.tags.forEach((tag) => {
+    submenu.appendChild(createTagOptionButton(category.name, tag));
+  });
+
+  trigger.append(label, count, chevron, submenu);
+  return trigger;
+}
+
+function renderTagContextMenu() {
+  if (!todoItemContextMenu || !tagsSubmenu) return;
+
+  renderPriorityContextMenu();
+  renderDueContextMenu();
+  renderSystemContextCategories();
+
+  todoItemContextMenu
+    .querySelectorAll(".quick-tag-dropdown, .quick-tag-separator")
+    .forEach((element) => element.remove());
+
+  const pinnedCategories = tagCategories.filter((category) => category.pinned);
+  const tagsSeparator = todoItemContextMenu.querySelector(
+    ".tags-menu-separator",
+  );
+  pinnedCategories.forEach((category, index) => {
+    if (contextCategorySettings.priority || index > 0) {
+      const separator = document.createElement("div");
+      separator.className = "context-menu-separator quick-tag-separator";
+      tagsSeparator?.before(separator);
+    }
+    tagsSeparator?.before(createTagCategoryDropdown(category));
+  });
+  tagsSeparator?.toggleAttribute(
+    "hidden",
+    !contextCategorySettings.priority && pinnedCategories.length === 0,
+  );
+
+  tagsSubmenu.innerHTML = "";
+  tagCategories.forEach((category, index) => {
+    if (index > 0) {
+      const separator = document.createElement("div");
+      separator.className = "context-menu-separator";
+      tagsSubmenu.appendChild(separator);
+    }
+    tagsSubmenu.appendChild(createTagGroupElement(category));
+  });
+
+  const clearSeparator = document.createElement("div");
+  clearSeparator.className = "context-menu-separator";
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "context-menu-item tag-option";
+  clearButton.dataset.action = "toggle-tag";
+  clearButton.dataset.tag = "";
+  clearButton.setAttribute("role", "menuitemcheckbox");
+  clearButton.textContent = "Clear all tags";
+  tagsSubmenu.append(clearSeparator, clearButton);
+
+  tagOptions = Array.from(
+    todoItemContextMenu.querySelectorAll(".tag-option") ?? [],
+  );
+}
+
+function renderSystemContextCategories() {
+  priorityMenuTrigger?.toggleAttribute(
+    "hidden",
+    !contextCategorySettings.priority,
+  );
+  dueMenuTrigger?.toggleAttribute("hidden", !contextCategorySettings.due);
+  todoItemContextMenu
+    ?.querySelector(".due-menu-separator")
+    ?.toggleAttribute("hidden", !contextCategorySettings.due);
+
+  if (!contextCategorySettings.priority) {
+    closePrioritySubmenu(true);
+  }
+  if (!contextCategorySettings.due) {
+    closeDueSubmenu(true);
+  }
+}
+
+function createSystemCategoryCard({
+  title,
+  description,
+  settingKey,
+  options,
+  editableType = null,
+}) {
+  const card = document.createElement("section");
+  card.className = "tag-category-card system-category-card";
+
+  const header = document.createElement("div");
+  header.className = "tag-category-header";
+
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "system-category-title";
+  const titleEl = document.createElement("strong");
+  titleEl.textContent = title;
+  const descriptionEl = document.createElement("span");
+  descriptionEl.textContent = description;
+  titleWrap.append(titleEl, descriptionEl);
+
+  const pinLabel = document.createElement("label");
+  pinLabel.className = "tag-pin-toggle";
+  const pinInput = document.createElement("input");
+  pinInput.type = "checkbox";
+  pinInput.checked = contextCategorySettings[settingKey] !== false;
+  pinInput.addEventListener("change", () => {
+    contextCategorySettings = {
+      ...contextCategorySettings,
+      [settingKey]: pinInput.checked,
+    };
+    persistContextCategorySettings();
+    renderTagContextMenu();
+    renderTagSettings();
+  });
+  const pinText = document.createElement("span");
+  pinText.textContent = "In context menu";
+  pinLabel.append(pinInput, pinText);
+
+  header.append(titleWrap, pinLabel);
+
+  const optionsRow = document.createElement("div");
+  optionsRow.className = "system-category-options";
+  if (editableType === "priority") {
+    priorityCategoryOptions.forEach((optionValue, optionIndex) => {
+      const row = document.createElement("div");
+      row.className = "tag-editor-row";
+
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "Priority option");
+      DEFAULT_PRIORITY_OPTIONS.forEach((option) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = option.value;
+        optionEl.textContent = option.label;
+        optionEl.selected = option.value === optionValue;
+        optionEl.disabled =
+          option.value !== optionValue &&
+          priorityCategoryOptions.includes(option.value);
+        select.appendChild(optionEl);
+      });
+      select.addEventListener("change", () => {
+        const nextValue = select.value;
+        if (!nextValue || priorityCategoryOptions.includes(nextValue)) {
+          renderTagSettings();
+          return;
+        }
+        priorityCategoryOptions[optionIndex] = nextValue;
+        persistPriorityOptions();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "icon-only-button";
+      removeButton.title = "Delete option";
+      removeButton.textContent = "×";
+      removeButton.addEventListener("click", () => {
+        priorityCategoryOptions = priorityCategoryOptions.filter(
+          (_, index) => index !== optionIndex,
+        );
+        persistPriorityOptions();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      row.append(select, removeButton);
+      optionsRow.appendChild(row);
+    });
+
+    const availablePriorityOptions = DEFAULT_PRIORITY_OPTIONS.filter(
+      (option) => !priorityCategoryOptions.includes(option.value),
+    );
+    if (availablePriorityOptions.length) {
+      const addRow = document.createElement("div");
+      addRow.className = "tag-editor-row";
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "New priority");
+      availablePriorityOptions.forEach((option) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = option.value;
+        optionEl.textContent = option.label;
+        select.appendChild(optionEl);
+      });
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "secondary-button";
+      addButton.textContent = "Add";
+      addButton.addEventListener("click", () => {
+        if (!select.value) return;
+        priorityCategoryOptions = [...priorityCategoryOptions, select.value];
+        persistPriorityOptions();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+      addRow.append(select, addButton);
+      optionsRow.appendChild(addRow);
+    }
+  } else if (editableType === "due") {
+    dueCategoryOptions.forEach((option, optionIndex) => {
+      const row = document.createElement("div");
+      row.className = "tag-editor-row";
+
+      const input = document.createElement("input");
+      input.value = option;
+      input.setAttribute("aria-label", "Due option");
+      input.addEventListener("change", () => {
+        const nextValue = normalizeTodoText(input.value);
+        if (nextValue) {
+          dueCategoryOptions[optionIndex] = nextValue;
+        } else {
+          dueCategoryOptions.splice(optionIndex, 1);
+        }
+        persistDueOptions();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "icon-only-button";
+      removeButton.title = "Delete option";
+      removeButton.textContent = "×";
+      removeButton.addEventListener("click", () => {
+        dueCategoryOptions = dueCategoryOptions.filter(
+          (_, index) => index !== optionIndex,
+        );
+        persistDueOptions();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      row.append(input, removeButton);
+      optionsRow.appendChild(row);
+    });
+
+    const addRow = document.createElement("div");
+    addRow.className = "tag-editor-row";
+    const addInput = document.createElement("input");
+    addInput.placeholder = "New option";
+    addInput.setAttribute("aria-label", "New due option");
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "secondary-button";
+    addButton.textContent = "Add";
+    const addDueOption = () => {
+      const nextValue = normalizeTodoText(addInput.value);
+      if (!nextValue) return;
+      dueCategoryOptions = [...dueCategoryOptions, nextValue];
+      persistDueOptions();
+      renderTagContextMenu();
+      renderTagSettings();
+    };
+    addButton.addEventListener("click", addDueOption);
+    addInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addDueOption();
+    });
+    addRow.append(addInput, addButton);
+    optionsRow.appendChild(addRow);
+  } else {
+    options.forEach((option) => {
+      const chip = document.createElement("span");
+      chip.className = "system-category-chip";
+      chip.textContent = option;
+      optionsRow.appendChild(chip);
+    });
+  }
+
+  card.append(header, optionsRow);
+  return card;
+}
+
+function renderTagSettings() {
+  if (!tagCategoryList) return;
+
+  tagCategoryList.innerHTML = "";
+  tagCategoryList.append(
+    createSystemCategoryCard({
+      title: "Priority",
+      description: "Default category for importance level.",
+      settingKey: "priority",
+      options: [
+        ...priorityCategoryOptions
+          .map((value) =>
+            DEFAULT_PRIORITY_OPTIONS.find((option) => option.value === value),
+          )
+          .filter(Boolean)
+          .map((option) => option.label),
+        "No priority",
+      ],
+      editableType: "priority",
+    }),
+    createSystemCategoryCard({
+      title: "Due Time",
+      description: "Default category for the task due time.",
+      settingKey: "due",
+      options: [...dueCategoryOptions, "None"],
+      editableType: "due",
+    }),
+  );
+
+  tagCategories.forEach((category, categoryIndex) => {
+    const card = document.createElement("section");
+    card.className = "tag-category-card";
+
+    const header = document.createElement("div");
+    header.className = "tag-category-header";
+
+    const nameInput = document.createElement("input");
+    nameInput.className = "tag-category-name-input";
+    nameInput.value = category.name;
+    nameInput.setAttribute("aria-label", "Category name");
+    nameInput.addEventListener("change", () => {
+      const nextName = normalizeTodoText(nameInput.value) || "Category";
+      tagCategories[categoryIndex] = {
+        ...category,
+        name: nextName,
+      };
+      persistTagSettings();
+      renderTagContextMenu();
+      renderTagSettings();
+    });
+
+    const pinLabel = document.createElement("label");
+    pinLabel.className = "tag-pin-toggle";
+    const pinInput = document.createElement("input");
+    pinInput.type = "checkbox";
+    pinInput.checked = category.pinned;
+    pinInput.addEventListener("change", () => {
+      tagCategories[categoryIndex] = {
+        ...category,
+        pinned: pinInput.checked,
+      };
+      persistTagSettings();
+      renderTagContextMenu();
+      renderTagSettings();
+    });
+    const pinText = document.createElement("span");
+    pinText.textContent = "In context menu";
+    pinLabel.append(pinInput, pinText);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "secondary-button danger";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", () => {
+      tagCategories = tagCategories.filter((_, index) => index !== categoryIndex);
+      persistTagSettings();
+      renderTagContextMenu();
+      renderTagSettings();
+    });
+
+    header.append(nameInput, pinLabel, deleteButton);
+
+    const tagsWrap = document.createElement("div");
+    tagsWrap.className = "tag-editor-list";
+    category.tags.forEach((tag, tagIndex) => {
+      const tagEntry = normalizeTagEntry(tag);
+      const row = document.createElement("div");
+      row.className = "tag-editor-row";
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.className = "tag-color-input";
+      colorInput.value = tagEntry.color;
+      colorInput.setAttribute("aria-label", "Tag color");
+      colorInput.addEventListener("input", () => {
+        const nextTags = category.tags.map((item, index) =>
+          index === tagIndex
+            ? { ...normalizeTagEntry(item), color: colorInput.value }
+            : normalizeTagEntry(item),
+        );
+        tagCategories[categoryIndex] = {
+          ...category,
+          tags: nextTags,
+        };
+        persistTagSettings();
+        renderTagContextMenu();
+      });
+
+      const tagInput = document.createElement("input");
+      tagInput.value = tagEntry.name;
+      tagInput.setAttribute("aria-label", "Tag");
+      tagInput.addEventListener("change", () => {
+        const nextTag = normalizeTodoText(tagInput.value);
+        const nextTags = category.tags.map(normalizeTagEntry);
+        if (nextTag) {
+          nextTags[tagIndex] = {
+            ...nextTags[tagIndex],
+            name: nextTag,
+          };
+        } else {
+          nextTags.splice(tagIndex, 1);
+        }
+        tagCategories[categoryIndex] = {
+          ...category,
+          tags: nextTags,
+        };
+        persistTagSettings();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      const removeTagButton = document.createElement("button");
+      removeTagButton.type = "button";
+      removeTagButton.className = "icon-only-button";
+      removeTagButton.title = "Delete tag";
+      removeTagButton.textContent = "×";
+      removeTagButton.addEventListener("click", () => {
+        tagCategories[categoryIndex] = {
+          ...category,
+          tags: category.tags.filter((_, index) => index !== tagIndex),
+        };
+        persistTagSettings();
+        renderTagContextMenu();
+        renderTagSettings();
+      });
+
+      row.append(colorInput, tagInput, removeTagButton);
+      tagsWrap.appendChild(row);
+    });
+
+    const addTagRow = document.createElement("div");
+    addTagRow.className = "tag-editor-row";
+    const addColorInput = document.createElement("input");
+    addColorInput.type = "color";
+    addColorInput.className = "tag-color-input";
+    addColorInput.value = DEFAULT_TAG_COLOR;
+    addColorInput.setAttribute("aria-label", "New tag color");
+    const addTagInput = document.createElement("input");
+    addTagInput.placeholder = "New tag";
+    addTagInput.setAttribute("aria-label", "New tag");
+    const addTagButton = document.createElement("button");
+    addTagButton.type = "button";
+    addTagButton.className = "secondary-button";
+    addTagButton.textContent = "Add";
+    const addTag = () => {
+      const nextTag = normalizeTodoText(addTagInput.value);
+      if (!nextTag) return;
+      tagCategories[categoryIndex] = {
+        ...category,
+        tags: [
+          ...category.tags.map(normalizeTagEntry),
+          { name: nextTag, color: addColorInput.value },
+        ],
+      };
+      persistTagSettings();
+      renderTagContextMenu();
+      renderTagSettings();
+    };
+    addTagButton.addEventListener("click", addTag);
+    addTagInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addTag();
+    });
+    addTagRow.append(addColorInput, addTagInput, addTagButton);
+
+    card.append(header, tagsWrap, addTagRow);
+    tagCategoryList.appendChild(card);
+  });
+}
+
+function addTagCategory() {
+  tagCategories = [
+    {
+      id: createFileId(),
+      name: "New category",
+      tags: [{ name: "New tag", color: DEFAULT_TAG_COLOR }],
+      pinned: true,
+    },
+    ...tagCategories,
+  ];
+  persistTagSettings();
+  renderTagContextMenu();
+  renderTagSettings();
+}
 
 let priorityCloseTimer = null;
 let tagsCloseTimer = null;
@@ -790,6 +1712,7 @@ function initRailMorphHover() {
   if (!rail || !railButtons.length) return;
 
   let squishResetTimer = null;
+  let morphFrame = null;
 
   function getActiveIndex() {
     return railButtons.findIndex((btn) => btn.classList.contains("active"));
@@ -801,14 +1724,22 @@ function initRailMorphHover() {
 
     const distance = index - activeIndex;
     const direction = distance > 0 ? 1 : -1;
-    const magnitude = Math.min(Math.abs(distance), 2);
+    const magnitude = Math.min(Math.abs(distance), 2) === 2 ? 1.35 : 1;
     // Anchor the near edge of the pill so it only elongates toward the
     // hovered button instead of growing symmetrically from its center.
     const originY = direction > 0 ? "0%" : "100%";
-    setRailMorph(direction * magnitude, originY);
+    if (morphFrame) window.cancelAnimationFrame(morphFrame);
+    morphFrame = window.requestAnimationFrame(() => {
+      setRailMorph(magnitude, originY);
+      morphFrame = null;
+    });
   }
 
   function releaseSquish() {
+    if (morphFrame) {
+      window.cancelAnimationFrame(morphFrame);
+      morphFrame = null;
+    }
     setRailMorph(0, "50%");
     if (squishResetTimer) window.clearTimeout(squishResetTimer);
     squishResetTimer = window.setTimeout(() => {
@@ -819,7 +1750,6 @@ function initRailMorphHover() {
 
   railButtons.forEach((button, index) => {
     button.addEventListener("mouseenter", () => morphTowards(index));
-    button.addEventListener("mouseleave", () => setRailMorph(0, "50%"));
 
     button.addEventListener("mousedown", () => {
       if (squishResetTimer) {
@@ -830,6 +1760,8 @@ function initRailMorphHover() {
       morphTowards(index);
     });
   });
+
+  rail.addEventListener("mouseleave", () => setRailMorph(0, "50%"));
 
   // Catch releases anywhere (drag off the button, fast clicking, etc.) so
   // the pill never gets stuck stretched out.
@@ -851,6 +1783,7 @@ function rememberOpenTab(type, id) {
 function closeNoteTab(tabIndex) {
   if (tabIndex < 0 || tabIndex >= openNoteIds.length) return;
 
+  const closingNoteId = openNoteIds[tabIndex];
   if (tabIndex < activeNoteTabIndex) {
     activeNoteTabIndex -= 1;
   } else if (tabIndex === activeNoteTabIndex) {
@@ -860,12 +1793,31 @@ function closeNoteTab(tabIndex) {
   }
 
   openNoteIds.splice(tabIndex, 1);
+  if (closingNoteId === DRAFT_NOTE_TAB_ID) {
+    draftNoteContent = "";
+  }
   if (openNoteIds.length === 0) {
     resetSelection();
     return;
   }
 
   const nextNoteId = openNoteIds[activeNoteTabIndex];
+  if (nextNoteId === DEFAULT_NOTE_TAB_ID) {
+    showDefaultNotePage({
+      preserveOpenTabs: true,
+      tabIndex: activeNoteTabIndex,
+    });
+    return;
+  }
+
+  if (nextNoteId === DRAFT_NOTE_TAB_ID) {
+    showDraftNotePage({
+      preserveOpenTabs: true,
+      tabIndex: activeNoteTabIndex,
+    });
+    return;
+  }
+
   selectNote(nextNoteId, {
     preserveOpenTabs: true,
     tabIndex: activeNoteTabIndex,
@@ -954,9 +1906,21 @@ async function loadNotesFromDisk() {
   return Array.isArray(loadedNotes) ? loadedNotes : [];
 }
 
+async function refreshKnownDataVersions() {
+  const versions = await electronAPI.getDataVersion?.();
+  if (!versions || typeof versions !== "object") return knownDataVersions;
+
+  knownDataVersions = {
+    notes: Number(versions.notes) || 0,
+    todos: Number(versions.todos) || 0,
+  };
+  return knownDataVersions;
+}
+
 async function persistNotes(items = notes) {
   const next = Array.isArray(items) ? items : [];
   const savedNotes = await electronAPI.saveNotes?.(next);
+  await refreshKnownDataVersions();
   return Array.isArray(savedNotes) ? savedNotes : next;
 }
 
@@ -968,8 +1932,133 @@ async function loadTodoFilesFromDisk() {
 async function persistTodoFiles(items = todoFiles) {
   const next = Array.isArray(items) ? items : [];
   const savedFiles = await electronAPI.saveTodoFiles?.(next);
+  await refreshKnownDataVersions();
   return Array.isArray(savedFiles) ? savedFiles : next;
 }
+
+async function syncNotesFromDisk() {
+  const previousSelectedNoteId = selectedNoteId;
+  const previousRightNoteId = selectedRightNoteId;
+  const loadedNotes = await loadNotesFromDisk();
+  notes = loadedNotes;
+
+  openNoteIds = openNoteIds.filter(
+    (id) =>
+      id === DEFAULT_NOTE_TAB_ID ||
+      id === DRAFT_NOTE_TAB_ID ||
+      notes.some((note) => note.id === id),
+  );
+
+  if (
+    previousSelectedNoteId &&
+    notes.some((note) => note.id === previousSelectedNoteId)
+  ) {
+    selectedNoteId = previousSelectedNoteId;
+    const selectedNote = notes.find((note) => note.id === selectedNoteId);
+    const selectedContent = buildEditorContent(
+      selectedNote.title,
+      selectedNote.content,
+    );
+    if (canvas && activeView === "notes") {
+      canvas.innerText = selectedContent;
+      lastCanvasText = selectedContent;
+    }
+  } else if (previousSelectedNoteId) {
+    selectedNoteId = null;
+    lastCanvasText = "";
+    if (canvas) canvas.innerText = "";
+  }
+
+  if (
+    previousRightNoteId &&
+    notes.some((note) => note.id === previousRightNoteId)
+  ) {
+    selectedRightNoteId = previousRightNoteId;
+    const rightNote = notes.find((note) => note.id === selectedRightNoteId);
+    const rightContent = buildEditorContent(rightNote.title, rightNote.content);
+    if (rightCanvas) rightCanvas.innerText = rightContent;
+    rightCanvasLastText = rightContent;
+    if (rightCanvasTitle) rightCanvasTitle.textContent = rightNote.title;
+  } else if (previousRightNoteId) {
+    selectedRightNoteId = null;
+    rightCanvasLastText = "";
+    if (rightCanvas) rightCanvas.innerText = "";
+    if (rightCanvasTitle) rightCanvasTitle.textContent = "";
+  }
+
+  renderNotes("");
+  renderSearchResults();
+  renderOpenFileTabs();
+}
+
+async function syncTodoFilesFromDisk() {
+  const previousSelectedTodoFileId = selectedTodoFileId;
+  const loadedTodoFiles = await loadTodoFilesFromDisk();
+  todoFiles = loadedTodoFiles;
+
+  openTodoFileIds = openTodoFileIds.filter((id) =>
+    todoFiles.some((file) => file.id === id),
+  );
+
+  if (
+    previousSelectedTodoFileId &&
+    todoFiles.some((file) => file.id === previousSelectedTodoFileId)
+  ) {
+    selectedTodoFileId = previousSelectedTodoFileId;
+  } else if (previousSelectedTodoFileId) {
+    selectedTodoFileId = todoFiles[0]?.id ?? null;
+  }
+
+  renderTodoFilesSidebar();
+  renderTodoItems();
+  renderSearchResults();
+  renderOpenFileTabs();
+}
+
+async function syncChangedDataVersions(nextVersions) {
+  const normalizedVersions = {
+    notes: Number(nextVersions?.notes) || 0,
+    todos: Number(nextVersions?.todos) || 0,
+  };
+  const notesChanged = normalizedVersions.notes > knownDataVersions.notes;
+  const todosChanged = normalizedVersions.todos > knownDataVersions.todos;
+
+  knownDataVersions = normalizedVersions;
+
+  if (notesChanged) {
+    await syncNotesFromDisk();
+  }
+
+  if (todosChanged) {
+    await syncTodoFilesFromDisk();
+  }
+}
+
+electronAPI.onDataChanged?.((type, version) => {
+  if (type === "notes") {
+    knownDataVersions = {
+      ...knownDataVersions,
+      notes: Math.max(knownDataVersions.notes, Number(version) || 0),
+    };
+    void syncNotesFromDisk();
+    return;
+  }
+
+  if (type === "todos") {
+    knownDataVersions = {
+      ...knownDataVersions,
+      todos: Math.max(knownDataVersions.todos, Number(version) || 0),
+    };
+    void syncTodoFilesFromDisk();
+  }
+});
+
+setInterval(() => {
+  void electronAPI
+    .getDataVersion?.()
+    ?.then((versions) => syncChangedDataVersions(versions))
+    ?.catch(() => {});
+}, 500);
 
 function renderNotes(filter = "") {
   noteList.innerHTML = "";
@@ -1006,7 +2095,7 @@ function renderNotes(filter = "") {
   if (totalDisplayed === 0 && !hasEmptyFolders) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "Nu există fișiere.";
+    empty.textContent = "No files.";
     noteList.appendChild(empty);
     return;
   }
@@ -1088,7 +2177,7 @@ function renderNotes(filter = "") {
 
     const plusBtn = document.createElement("button");
     plusBtn.className = "folder-action-button";
-    plusBtn.title = "Notă nouă în folder";
+    plusBtn.title = "New note in folder";
     plusBtn.innerHTML = "+";
     plusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1097,7 +2186,7 @@ function renderNotes(filter = "") {
 
     const renameBtn = document.createElement("button");
     renameBtn.className = "folder-action-button";
-    renameBtn.title = "Redenumește folderul";
+    renameBtn.title = "Rename folder";
     renameBtn.innerHTML = "✎";
     renameBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1106,7 +2195,7 @@ function renderNotes(filter = "") {
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "folder-action-button danger";
-    deleteBtn.title = "Șterge folderul";
+    deleteBtn.title = "Delete folder";
     deleteBtn.innerHTML = "×";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1212,6 +2301,8 @@ function renderOpenFileTabs() {
   openFileTabs.innerHTML = "";
 
   openNoteIds = openNoteIds.filter((id) =>
+    id === DEFAULT_NOTE_TAB_ID ||
+    id === DRAFT_NOTE_TAB_ID ||
     notes.some((note) => note.id === id),
   );
   openTodoFileIds = openTodoFileIds.filter((id) =>
@@ -1249,7 +2340,7 @@ function renderOpenFileTabs() {
 
     const close = document.createElement("span");
     close.className = "tab-close-button";
-    close.title = "Închide";
+    close.title = "Close";
     close.textContent = "×";
     close.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1263,6 +2354,38 @@ function renderOpenFileTabs() {
 
   if (activeView === "notes" && openNoteIds.length > 0) {
     openNoteIds.forEach((noteId, index) => {
+      if (noteId === DEFAULT_NOTE_TAB_ID) {
+        tabsContainer.appendChild(
+          buildTab(
+            "New page",
+            index === activeNoteTabIndex,
+            () =>
+              showDefaultNotePage({
+                preserveOpenTabs: true,
+                tabIndex: index,
+              }),
+            () => closeNoteTab(index),
+          ),
+        );
+        return;
+      }
+
+      if (noteId === DRAFT_NOTE_TAB_ID) {
+        tabsContainer.appendChild(
+          buildTab(
+            "United",
+            index === activeNoteTabIndex,
+            () =>
+              showDraftNotePage({
+                preserveOpenTabs: true,
+                tabIndex: index,
+              }),
+            () => closeNoteTab(index),
+          ),
+        );
+        return;
+      }
+
       const note = notes.find((item) => item.id === noteId);
       if (!note) return;
 
@@ -1300,14 +2423,14 @@ function renderOpenFileTabs() {
   } else {
     const placeholder = document.createElement("span");
     placeholder.className = "file-tab empty";
-    placeholder.textContent = "Niciun fișier deschis";
+    placeholder.textContent = "No file open";
     tabsContainer.appendChild(placeholder);
   }
 
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "tab-add-button";
-  addButton.title = activeView === "todo" ? "To-do nou" : "Nota noua";
+  addButton.title = activeView === "todo" ? "New to-do" : "New note";
   addButton.innerHTML = '<span class="icon plus-icon"></span>';
   addButton.addEventListener("click", () => {
     if (activeView === "todo") {
@@ -1315,12 +2438,21 @@ function renderOpenFileTabs() {
       return;
     }
 
-    void createNewFile();
+    openDraftNoteTab();
   });
 
   openFileTabs.append(tabsContainer, addButton);
 
-  const targetSlot = activeView === "todo" ? todoTabsSlot : editorTabsSlot;
+  const defaultNotePageIsActive =
+    activeView === "notes" &&
+    !selectedNoteId &&
+    openNoteIds[activeNoteTabIndex] === DEFAULT_NOTE_TAB_ID;
+  const targetSlot =
+    activeView === "todo"
+      ? todoTabsSlot
+      : defaultNotePageIsActive
+        ? welcomeTabsSlot
+        : editorTabsSlot;
   if (targetSlot && openFileTabs.parentElement !== targetSlot) {
     targetSlot.appendChild(openFileTabs);
   }
@@ -1351,7 +2483,7 @@ function renderTodoFilesSidebar() {
   if (todoFiles.length === 0 && emptyTodoFolders.size === 0) {
     const empty = document.createElement("p");
     empty.className = "todo-sidebar-empty";
-    empty.textContent = "Nu există fișiere To-do.";
+    empty.textContent = "No to-do files.";
     todoSidebarList.appendChild(empty);
     return;
   }
@@ -1425,7 +2557,7 @@ function renderTodoFilesSidebar() {
 
     const plusBtn = document.createElement("button");
     plusBtn.className = "folder-action-button";
-    plusBtn.title = "Fișier To-do nou în folder";
+    plusBtn.title = "New to-do file in folder";
     plusBtn.innerHTML = "+";
     plusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1434,7 +2566,7 @@ function renderTodoFilesSidebar() {
 
     const renameBtn = document.createElement("button");
     renameBtn.className = "folder-action-button";
-    renameBtn.title = "Redenumește folderul";
+    renameBtn.title = "Rename folder";
     renameBtn.innerHTML = "✎";
     renameBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1443,7 +2575,7 @@ function renderTodoFilesSidebar() {
 
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "folder-action-button danger";
-    deleteBtn.title = "Șterge folderul";
+    deleteBtn.title = "Delete folder";
     deleteBtn.innerHTML = "×";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1499,7 +2631,7 @@ function renderTodoFilesSidebar() {
       item.draggable = true;
       item.innerHTML = `
         <strong>${escapeHtml(todoFile.title)}</strong>
-        <span>${todoFile.items?.length || 0} sarcini</span>
+        <span>${todoFile.items?.length || 0} tasks</span>
       `;
       item.addEventListener("click", (event) => {
         handlePrimaryFileOpen(event, () => selectTodoFile(todoFile.id));
@@ -1524,7 +2656,7 @@ function renderTodoFilesSidebar() {
     item.draggable = true;
     item.innerHTML = `
       <strong>${escapeHtml(todoFile.title)}</strong>
-      <span>${todoFile.items?.length || 0} sarcini</span>
+      <span>${todoFile.items?.length || 0} tasks</span>
     `;
     item.addEventListener("click", (event) => {
       handlePrimaryFileOpen(event, () => selectTodoFile(todoFile.id));
@@ -1631,7 +2763,7 @@ function renderTodoItems() {
     (todoFile) => todoFile.id === selectedTodoFileId,
   );
   if (!selectedFile) {
-    todoViewTitle.textContent = "Activități";
+    todoViewTitle.textContent = "Tasks";
     todoViewTitle.removeAttribute("contenteditable");
     todoList.innerHTML = "";
     if (todoWelcome) todoWelcome.hidden = false;
@@ -1650,7 +2782,7 @@ function renderTodoItems() {
   if (!selectedFile.items?.length) {
     const empty = document.createElement("li");
     empty.className = "todo-empty";
-    empty.textContent = "Nu există sarcini în această listă.";
+    empty.textContent = "No tasks in this list.";
     todoList.appendChild(empty);
     return;
   }
@@ -1721,7 +2853,12 @@ function renderTodoItems() {
             String(tagValue).split(":").pop().trim() || String(tagValue);
           const badge = document.createElement("span");
           badge.className = "todo-tag-badge";
-          badge.textContent = label;
+          const dot = document.createElement("span");
+          dot.className = "tag-color-dot";
+          dot.style.backgroundColor = findTagColorByValue(tagValue);
+          const text = document.createElement("span");
+          text.textContent = label;
+          badge.append(dot, text);
           badge.title = "Click to remove tag";
           badge.style.cursor = "pointer";
           badge.addEventListener("click", (event) => {
@@ -2008,7 +3145,7 @@ async function deleteTodo(todoId) {
 }
 
 async function updateTodoTags(todoId, tagValue) {
-  if (!selectedTodoFileId || !todoId || !tagValue) return;
+  if (!selectedTodoFileId || !todoId) return;
 
   todoFiles = await persistTodoFiles(
     todoFiles.map((todoFile) =>
@@ -2022,6 +3159,11 @@ async function updateTodoTags(todoId, tagValue) {
               const currentTags = Array.isArray(item.tags)
                 ? item.tags.filter(Boolean)
                 : [];
+              if (!tagValue) {
+                const { tags, ...itemWithoutTags } = item;
+                return itemWithoutTags;
+              }
+
               const hasTag = currentTags.includes(tagValue);
               const nextTags = hasTag
                 ? currentTags.filter((tag) => tag !== tagValue)
@@ -2089,8 +3231,8 @@ async function renameTodoFile() {
   if (!selectedFile) return;
 
   showTextPrompt(
-    "Redenumește To-do",
-    "Numele nou al fișierului To-do:",
+    "Rename To-do",
+    "New to-do file name:",
     selectedFile.title,
     async (newName) => {
       if (!newName) return;
@@ -2139,11 +3281,11 @@ const saveTodoTitleDebounced = debounce(async () => {
   todoFiles = await persistTodoFiles(todoFiles);
   renderTodoFilesSidebar();
   renderOpenFileTabs();
-}, 350);
+}, 120);
 
 async function deleteTodoFile() {
   if (!selectedTodoFileId) return;
-  if (!confirm("Ștergi fișierul To-do selectat?")) return;
+  if (!confirm("Delete the selected to-do file?")) return;
 
   todoFiles = await persistTodoFiles(
     todoFiles.filter((todoFile) => todoFile.id !== selectedTodoFileId),
@@ -2157,16 +3299,20 @@ function showWelcome() {
   welcome.hidden = false;
   editorView.hidden = true;
   todoView.hidden = true;
+  if (tagSettingsView) tagSettingsView.hidden = true;
   notesSidebar.hidden = false;
   todoSidebar.hidden = true;
+  if (tagsSidebar) tagsSidebar.hidden = true;
 }
 
 function showEditor() {
   welcome.hidden = true;
   editorView.hidden = false;
   todoView.hidden = true;
+  if (tagSettingsView) tagSettingsView.hidden = true;
   notesSidebar.hidden = isSoloWindow ? true : false;
   todoSidebar.hidden = true;
+  if (tagsSidebar) tagsSidebar.hidden = true;
 
   if (editorView) {
     editorView.hidden = false;
@@ -2195,8 +3341,10 @@ function showTodoView() {
   welcome.hidden = true;
   editorView.hidden = true;
   todoView.hidden = false;
+  if (tagSettingsView) tagSettingsView.hidden = true;
   notesSidebar.hidden = true;
-  todoSidebar.hidden = false;
+  todoSidebar.hidden = isSoloWindow ? true : false;
+  if (tagsSidebar) tagsSidebar.hidden = true;
   renderTodoFilesSidebar();
   renderTodoItems();
   railButtons.forEach((button) => {
@@ -2205,6 +3353,23 @@ function showTodoView() {
   updateRailInk("todo");
   renderOpenFileTabs();
   persistUiState({ activeView: "todo" });
+}
+
+function showTagSettingsView() {
+  activeView = "tags";
+  welcome.hidden = true;
+  editorView.hidden = true;
+  todoView.hidden = true;
+  if (tagSettingsView) tagSettingsView.hidden = false;
+  notesSidebar.hidden = true;
+  todoSidebar.hidden = true;
+  if (tagsSidebar) tagsSidebar.hidden = isSoloWindow ? true : false;
+  railButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === "tags");
+  });
+  updateRailInk("tags");
+  renderTagSettings();
+  persistUiState({ activeView: "tags" });
 }
 
 function showNotesView() {
@@ -2233,6 +3398,129 @@ function resetSelection() {
   showWelcome();
   renderOpenFileTabs();
   persistUiState({ selectedNoteId: null, activeView: "notes" });
+}
+
+function showDefaultNotePage({
+  preserveOpenTabs = false,
+  tabIndex = null,
+} = {}) {
+  activeView = "notes";
+  selectedNoteId = null;
+
+  if (preserveOpenTabs) {
+    if (!openNoteIds.includes(DEFAULT_NOTE_TAB_ID)) {
+      openNoteIds = [...openNoteIds, DEFAULT_NOTE_TAB_ID];
+    }
+    if (tabIndex !== null) {
+      activeNoteTabIndex = tabIndex;
+    }
+  } else {
+    openNoteIds = [DEFAULT_NOTE_TAB_ID];
+    activeNoteTabIndex = 0;
+  }
+
+  if (canvas) {
+    canvas.innerText = "";
+  }
+  lastCanvasText = "";
+  if (deleteButton) deleteButton.disabled = true;
+  if (renameButton) renameButton.disabled = true;
+  if (moveNoteButton) moveNoteButton.disabled = true;
+  showWelcome();
+  renderNotes("");
+  renderOpenFileTabs();
+  persistUiState({ selectedNoteId: null, activeView: "notes" });
+}
+
+function openDefaultNoteTab() {
+  const existingIndex = openNoteIds.indexOf(DEFAULT_NOTE_TAB_ID);
+  if (existingIndex >= 0) {
+    showDefaultNotePage({
+      preserveOpenTabs: true,
+      tabIndex: existingIndex,
+    });
+    return;
+  }
+
+  openNoteIds = [...openNoteIds, DEFAULT_NOTE_TAB_ID];
+  showDefaultNotePage({
+    preserveOpenTabs: true,
+    tabIndex: openNoteIds.length - 1,
+  });
+}
+
+function showDraftNotePage({
+  preserveOpenTabs = false,
+  tabIndex = null,
+} = {}) {
+  activeView = "notes";
+  selectedNoteId = null;
+
+  if (preserveOpenTabs) {
+    if (!openNoteIds.includes(DRAFT_NOTE_TAB_ID)) {
+      openNoteIds = [...openNoteIds, DRAFT_NOTE_TAB_ID];
+    }
+    if (tabIndex !== null) {
+      activeNoteTabIndex = tabIndex;
+    }
+  } else {
+    openNoteIds = [DRAFT_NOTE_TAB_ID];
+    activeNoteTabIndex = 0;
+  }
+
+  const initialContent = draftNoteContent || "United";
+  if (canvas) {
+    canvas.hidden = false;
+    canvas.innerText = initialContent;
+    canvas.style.display = "block";
+  }
+  lastCanvasText = initialContent;
+  if (deleteButton) deleteButton.disabled = true;
+  if (renameButton) renameButton.disabled = true;
+  if (moveNoteButton) moveNoteButton.disabled = true;
+  showEditor();
+  renderNotes("");
+  renderOpenFileTabs();
+  persistUiState({ selectedNoteId: null, activeView: "notes" });
+  requestAnimationFrame(() => {
+    canvas?.focus();
+    selectTitleText();
+  });
+}
+
+function openDraftNoteTab() {
+  const existingIndex = openNoteIds.indexOf(DRAFT_NOTE_TAB_ID);
+  if (existingIndex >= 0) {
+    showDraftNotePage({
+      preserveOpenTabs: true,
+      tabIndex: existingIndex,
+    });
+    return;
+  }
+
+  draftNoteContent = "United";
+  openNoteIds = openNoteIds.filter((id) => id !== DEFAULT_NOTE_TAB_ID);
+  openNoteIds = [...openNoteIds, DRAFT_NOTE_TAB_ID];
+  showDraftNotePage({
+    preserveOpenTabs: true,
+    tabIndex: openNoteIds.length - 1,
+  });
+}
+
+async function promoteDraftNoteToFile(title, content) {
+  const nextNotes = addNote(notes, title, content);
+  const newNote = nextNotes[0];
+  notes = await persistNotes(nextNotes);
+  selectedNoteId = newNote.id;
+  draftNoteContent = "";
+  openNoteIds = openNoteIds.map((id) =>
+    id === DRAFT_NOTE_TAB_ID ? newNote.id : id,
+  );
+  activeNoteTabIndex = openNoteIds.indexOf(newNote.id);
+  selectNote(newNote.id, {
+    preserveOpenTabs: true,
+    tabIndex: activeNoteTabIndex,
+  });
 }
 
 function resetTodoSelection() {
@@ -2345,13 +3633,23 @@ function selectNote(
 }
 
 const saveCanvasDebounced = debounce(async () => {
+  if (!selectedNoteId && openNoteIds[activeNoteTabIndex] === DRAFT_NOTE_TAB_ID) {
+    const editorText = lastCanvasText.replace(/\u00A0/g, " ");
+    const { title, content } = extractTitleAndContent(editorText);
+    draftNoteContent = editorText || "United";
+    if (title !== "United") {
+      await promoteDraftNoteToFile(title, content);
+    }
+    return;
+  }
+
   if (!selectedNoteId) return;
   const editorText = lastCanvasText.replace(/\u00A0/g, " ");
   const { title, content } = extractTitleAndContent(editorText);
   notes = updateNote(notes, selectedNoteId, { title, content });
   await persistNotes(notes);
   renderNotes("");
-}, 400);
+}, 120);
 
 const saveRightCanvasDebounced = debounce(async () => {
   if (!selectedRightNoteId) return;
@@ -2361,9 +3659,9 @@ const saveRightCanvasDebounced = debounce(async () => {
   await persistNotes(notes);
   renderNotes("");
   if (rightCanvasTitle) rightCanvasTitle.textContent = title;
-}, 400);
+}, 120);
 
-async function createNewFile(folderName = null) {
+async function createNewFile(folderName = null, { appendTab = false } = {}) {
   notes = addNote(notes, "United", "");
   if (folderName) {
     notes[0].folder = folderName;
@@ -2371,9 +3669,18 @@ async function createNewFile(folderName = null) {
   }
   selectedNoteId = notes[0].id;
   notes = await persistNotes(notes);
-  openNoteIds = [selectedNoteId];
-  activeNoteTabIndex = 0;
-  selectNote(selectedNoteId);
+  if (appendTab) {
+    openNoteIds = openNoteIds.filter((id) => id !== DEFAULT_NOTE_TAB_ID);
+    openNoteIds = [...openNoteIds, selectedNoteId];
+    activeNoteTabIndex = openNoteIds.length - 1;
+  } else {
+    openNoteIds = [selectedNoteId];
+    activeNoteTabIndex = 0;
+  }
+  selectNote(selectedNoteId, {
+    preserveOpenTabs: appendTab,
+    tabIndex: appendTab ? activeNoteTabIndex : null,
+  });
   focusCanvasTitle();
 }
 
@@ -2381,8 +3688,8 @@ async function renameSelected() {
   if (!selectedNoteId) return;
   const note = notes.find((n) => n.id === selectedNoteId);
   showTextPrompt(
-    "Redenumește notița",
-    "Numele nou al fișierului:",
+    "Rename note",
+    "New file name:",
     note.title,
     async (newName) => {
       if (!newName) return;
@@ -2398,7 +3705,7 @@ async function renameSelected() {
 
 async function deleteSelectedNote() {
   if (!selectedNoteId) return;
-  if (!confirm("Ștergi fișierul selectat?")) return;
+  if (!confirm("Delete the selected file?")) return;
   notes = deleteNote(notes, selectedNoteId);
   notes = await persistNotes(notes);
   resetSelection();
@@ -2736,6 +4043,11 @@ railButtons.forEach((button) => {
       return;
     }
 
+    if (button.dataset.view === "tags") {
+      showTagSettingsView();
+      return;
+    }
+
     showNotesView();
   });
 });
@@ -2746,6 +4058,10 @@ focusSearchButtons.forEach((button) => {
   button.addEventListener("click", () => {
     openSearch();
   });
+});
+
+addTagCategoryButton?.addEventListener("click", () => {
+  addTagCategory();
 });
 
 if (searchDialog) {
@@ -2789,7 +4105,7 @@ function updateSidebarToggleButtonState() {
   toggleSidebarButton.setAttribute("aria-expanded", String(!isCollapsed));
   toggleSidebarButton.setAttribute(
     "title",
-    isCollapsed ? "Arată panoul" : "Ascunde panoul",
+    isCollapsed ? "Show sidebar" : "Hide sidebar",
   );
 }
 
@@ -2930,6 +4246,13 @@ async function initApp() {
     return;
   }
 
+  if (persistedState.activeView === "tags") {
+    renderNotes();
+    renderTodoFilesSidebar();
+    showTagSettingsView();
+    return;
+  }
+
   if (restoredNoteId) {
     selectedNoteId = restoredNoteId;
     selectNote(restoredNoteId);
@@ -3051,8 +4374,8 @@ async function commitFolderRename(oldName, newName, type) {
 
 async function renameFolder(oldName, type) {
   showTextPrompt(
-    "Redenumește folderul",
-    "Introdu noul nume pentru folder:",
+    "Rename folder",
+    "Enter the new folder name:",
     oldName,
     async (newName) => {
       await commitFolderRename(oldName, newName, type);
@@ -3128,7 +4451,7 @@ function openMoveDialog(type) {
 
   const rootOpt = document.createElement("option");
   rootOpt.value = "";
-  rootOpt.textContent = "Fără folder (Root)";
+  rootOpt.textContent = "No folder (Root)";
   moveFolderSelect.appendChild(rootOpt);
 
   const folders =
@@ -3155,7 +4478,7 @@ function openMoveDialog(type) {
 
   const newOpt = document.createElement("option");
   newOpt.value = "__NEW_FOLDER__";
-  newOpt.textContent = "+ Creează folder nou...";
+  newOpt.textContent = "+ Create new folder...";
   moveFolderSelect.appendChild(newOpt);
 
   const currentFile =
@@ -3187,7 +4510,7 @@ newFolderButton?.addEventListener("click", () => {
     ...notes.map((n) => n.folder).filter(Boolean),
     ...emptyNotesFolders,
   ]);
-  const name = uniqueFolderName("Folder nou", taken);
+  const name = uniqueFolderName("New folder", taken);
   emptyNotesFolders.add(name);
   renameFolderName = name;
   renderNotes();
@@ -3198,7 +4521,7 @@ newTodoFolderButton?.addEventListener("click", () => {
     ...todoFiles.map((t) => t.folder).filter(Boolean),
     ...emptyTodoFolders,
   ]);
-  const name = uniqueFolderName("Folder nou", taken);
+  const name = uniqueFolderName("New folder", taken);
   emptyTodoFolders.add(name);
   renameFolderName = name;
   renderTodoFilesSidebar();
@@ -3215,8 +4538,8 @@ moveTodoFileButton?.addEventListener("click", () => {
 moveFolderSelect?.addEventListener("change", () => {
   if (moveFolderSelect.value === "__NEW_FOLDER__") {
     showTextPrompt(
-      "Folder nou",
-      "Introdu numele noului folder:",
+      "New folder",
+      "Enter the new folder name:",
       "",
       (newFolderName) => {
         if (newFolderName) {
@@ -3344,4 +4667,5 @@ if (todoSidebarList) {
 
 window.addEventListener("resize", () => updateRailInk(activeView));
 
+renderTagContextMenu();
 void initApp();
