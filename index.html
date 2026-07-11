@@ -15,6 +15,7 @@
             id="toggle-sidebar"
             type="button"
             title="Ascunde panoul"
+            aria-expanded="true"
           >
             <span class="icon sidebar-icon"></span>
           </button>
@@ -22,17 +23,6 @@
             <span class="brand-mark">L</span>
             <span>Loop Notes</span>
           </div>
-        </div>
-
-        <div class="topbar-actions">
-          <button class="tool-button" id="focus-search" type="button">
-            <span class="icon search-icon"></span>
-            <span>Cauta</span>
-          </button>
-          <button class="tool-button primary" id="new-note" type="button">
-            <span class="icon plus-icon"></span>
-            <span>Nota noua</span>
-          </button>
         </div>
       </header>
 
@@ -54,14 +44,6 @@
           >
             <span class="icon calendar-icon"></span>
           </button>
-          <button
-            class="rail-button"
-            type="button"
-            title="Arhiva"
-            data-view="archive"
-          >
-            <span class="icon archive-icon"></span>
-          </button>
         </nav>
 
         <aside class="file-panel" id="file-panel">
@@ -71,37 +53,35 @@
                 <p class="eyebrow">Workspace</p>
                 <h1>Notite</h1>
               </div>
-              <button
-                id="panel-new-note"
-                class="round-button"
-                type="button"
-                title="Nota noua"
-              >
-                <span class="icon plus-icon"></span>
-              </button>
+              <div class="panel-header-actions">
+                <button
+                  class="round-button focus-search"
+                  type="button"
+                  title="Caută"
+                  aria-label="Caută"
+                >
+                  <span class="icon search-icon"></span>
+                </button>
+                <button
+                  id="panel-new-folder"
+                  class="round-button"
+                  type="button"
+                  title="Folder nou"
+                >
+                  <span class="icon folder-plus-icon"></span>
+                </button>
+                <button
+                  id="panel-new-note"
+                  class="round-button"
+                  type="button"
+                  title="Nota noua"
+                >
+                  <span class="icon plus-icon"></span>
+                </button>
+              </div>
             </div>
-
 
             <div id="note-list" class="note-list" role="list"></div>
-
-            <div class="panel-footer">
-              <button
-                id="rename-note"
-                class="secondary-button"
-                type="button"
-                disabled
-              >
-                Redenumeste
-              </button>
-              <button
-                id="delete-note"
-                class="secondary-button danger"
-                type="button"
-                disabled
-              >
-                Sterge
-              </button>
-            </div>
           </div>
 
           <div id="todo-sidebar" class="sidebar-view" hidden>
@@ -110,36 +90,35 @@
                 <p class="eyebrow">Workspace</p>
                 <h1>To-do</h1>
               </div>
-              <button
-                id="panel-new-todo"
-                class="round-button"
-                type="button"
-                title="Fișier nou"
-              >
-                <span class="icon plus-icon"></span>
-              </button>
+              <div class="panel-header-actions">
+                <button
+                  class="round-button focus-search"
+                  type="button"
+                  title="Caută"
+                  aria-label="Caută"
+                >
+                  <span class="icon search-icon"></span>
+                </button>
+                <button
+                  id="panel-new-todo-folder"
+                  class="round-button"
+                  type="button"
+                  title="Folder nou"
+                >
+                  <span class="icon folder-plus-icon"></span>
+                </button>
+                <button
+                  id="panel-new-todo"
+                  class="round-button"
+                  type="button"
+                  title="Fișier nou"
+                >
+                  <span class="icon plus-icon"></span>
+                </button>
+              </div>
             </div>
 
             <div id="todo-sidebar-list" class="todo-sidebar-list"></div>
-
-            <div class="panel-footer">
-              <button
-                id="rename-todo-file"
-                class="secondary-button"
-                type="button"
-                disabled
-              >
-                Redenumeste
-              </button>
-              <button
-                id="delete-todo-file"
-                class="secondary-button danger"
-                type="button"
-                disabled
-              >
-                Sterge
-              </button>
-            </div>
           </div>
         </aside>
 
@@ -158,22 +137,53 @@
           </section>
 
           <section class="editor-view" id="editor-view" hidden>
-            <div class="editor-meta">
-              <span id="status" class="status"
-                >Alege o pagina sau creeaza una noua.</span
+            <div class="editor-meta"></div>
+            <div class="editor-columns" id="editor-columns">
+              <div class="editor-column primary">
+                <div class="canvas-frame">
+                  <div class="canvas-tabs-slot" id="editor-tabs-slot"></div>
+                  <article class="page-shell">
+                    <div
+                      id="canvas"
+                      class="canvas"
+                      contenteditable="true"
+                      spellcheck="false"
+                      aria-label="Editor text"
+                    ></div>
+                  </article>
+                </div>
+              </div>
+
+              <div
+                class="editor-column secondary"
+                id="right-editor-column"
+                hidden
               >
-            </div>
-            <div class="canvas-frame">
-              <div class="canvas-tabs-slot" id="editor-tabs-slot"></div>
-              <article class="page-shell">
-                <div
-                  id="canvas"
-                  class="canvas"
-                  contenteditable="true"
-                  spellcheck="false"
-                  aria-label="Editor text"
-                ></div>
-              </article>
+                <div class="canvas-frame right-canvas-frame">
+                  <div class="canvas-side-header">
+                    <div class="canvas-side-title">
+                      <span id="right-canvas-title">Canvas dreapta</span>
+                    </div>
+                    <button
+                      type="button"
+                      id="close-right-pane"
+                      class="close-right-pane"
+                      title="Închide canvas dreapta"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <article class="page-shell">
+                    <div
+                      id="canvas-right"
+                      class="canvas canvas-right"
+                      contenteditable="true"
+                      spellcheck="false"
+                      aria-label="Editor text dreapta"
+                    ></div>
+                  </article>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -225,28 +235,824 @@
       </div>
     </div>
 
-    <dialog id="search-dialog" class="search-dialog" closedby="any" aria-label="Căutare globală">
+    <dialog
+      id="search-dialog"
+      class="dialog-modal search-dialog"
+      closedby="any"
+      aria-label="Căutare globală"
+    >
       <div class="search-dialog-content">
         <header class="search-dialog-header">
           <span class="icon search-icon"></span>
-          <input id="global-search-input" placeholder="Caută în note și liste to-do..." autocomplete="off" />
-          <button id="close-search-dialog" type="button" class="close-button" title="Închide">×</button>
+          <input
+            id="global-search-input"
+            placeholder="Caută în note și liste to-do..."
+            autocomplete="off"
+          />
+          <button
+            id="close-search-dialog"
+            type="button"
+            class="close-button"
+            title="Închide"
+          ></button>
         </header>
         <div id="search-results-container" class="search-results-container">
-          <section class="search-results-section" id="results-notes-section" hidden>
+          <section
+            class="search-results-section"
+            id="results-notes-section"
+            hidden
+          >
             <h3>Notițe</h3>
             <div class="results-list" id="results-notes-list"></div>
           </section>
-          <section class="search-results-section" id="results-todos-section" hidden>
+          <section
+            class="search-results-section"
+            id="results-todos-section"
+            hidden
+          >
             <h3>Liste To-Do</h3>
             <div class="results-list" id="results-todos-list"></div>
           </section>
           <div id="search-empty-state" class="search-empty-state" hidden>
-            Niciun rezultat găsit pentru „<span id="search-query-highlight"></span>”
+            <p>
+              Niciun rezultat găsit pentru „<span
+                id="search-query-highlight"
+              ></span
+              >”
+            </p>
+            <p class="search-create-hint">
+              Apasă Enter pentru a crea fișierul.
+            </p>
           </div>
         </div>
       </div>
     </dialog>
+
+    <dialog
+      id="folder-move-dialog"
+      class="dialog-modal folder-move-dialog"
+      aria-label="Mutare în folder"
+    >
+      <div class="folder-move-dialog-content">
+        <h2>Mută în folder</h2>
+        <form method="dialog" id="folder-move-form">
+          <div class="form-group">
+            <label for="move-folder-select">Selectează folderul:</label>
+            <select id="move-folder-select">
+              <!-- Options populated dynamically -->
+            </select>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" id="cancel-move-btn" class="secondary-button">
+              Anulează
+            </button>
+            <button type="submit" id="confirm-move-btn" class="primary-button">
+              Mută
+            </button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog
+      id="folder-input-dialog"
+      class="dialog-modal folder-move-dialog"
+      aria-label="Introducere text"
+    >
+      <div class="folder-move-dialog-content">
+        <h2 id="input-dialog-title">Nume folder</h2>
+        <form method="dialog" id="folder-input-form">
+          <div class="form-group">
+            <label for="dialog-text-input" id="input-dialog-label">Nume:</label>
+            <input
+              type="text"
+              id="dialog-text-input"
+              autocomplete="off"
+              style="
+                width: 100%;
+                padding: 10px;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: var(--surface);
+                color: var(--ink);
+                margin-top: 6px;
+                outline: none;
+              "
+            />
+          </div>
+          <div class="dialog-actions">
+            <button
+              type="button"
+              id="cancel-input-btn"
+              class="secondary-button"
+            >
+              Anulează
+            </button>
+            <button type="submit" id="confirm-input-btn" class="primary-button">
+              Salvează
+            </button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog
+      id="folder-delete-dialog"
+      class="dialog-modal folder-move-dialog"
+      aria-label="Ștergere folder"
+    >
+      <div class="folder-move-dialog-content">
+        <h2>Șterge folderul</h2>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px">
+          Cum dorești să ștergi folderul
+          <strong id="delete-folder-name-display"></strong>?
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <button
+            type="button"
+            id="delete-folder-all-btn"
+            class="primary-button"
+            style="background: var(--danger); text-align: left; width: 100%"
+          >
+            1. Șterge folderul și toate fișierele din el
+          </button>
+          <button
+            type="button"
+            id="delete-folder-keep-btn"
+            class="secondary-button"
+            style="
+              text-align: left;
+              border-color: var(--line-strong);
+              width: 100%;
+              color: var(--ink);
+            "
+          >
+            2. Șterge doar folderul (mută fișierele în root)
+          </button>
+          <button
+            type="button"
+            id="cancel-delete-folder-btn"
+            class="secondary-button"
+            style="text-align: center; margin-top: 10px; width: 100%"
+          >
+            Anulează
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="file-context-menu" class="context-menu" role="menu" hidden>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" data-action="open-tab" role="menuitem">
+        Open in new tab
+      </button>
+      <button
+        class="context-menu-item"
+        data-action="open-right"
+        role="menuitem"
+      >
+        Open to the right
+      </button>
+      <button
+        class="context-menu-item"
+        data-action="open-window"
+        role="menuitem"
+      >
+        Open in new window
+      </button>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" data-action="copy" role="menuitem">
+        Make a copy
+      </button>
+      <button class="context-menu-item" data-action="move" role="menuitem">
+        Move file to...
+      </button>
+      <button class="context-menu-item" data-action="copy-path" role="menuitem">
+        Copy path
+      </button>
+      <button
+        class="context-menu-item"
+        data-action="show-explorer"
+        role="menuitem"
+      >
+        Show in system explorer
+      </button>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" data-action="rename" role="menuitem">
+        Redenumeste
+      </button>
+      <div class="context-menu-separator"></div>
+      <button
+        class="context-menu-item danger"
+        data-action="delete"
+        role="menuitem"
+      >
+        Șterge
+      </button>
+    </div>
+
+    <div id="todo-item-context-menu" class="context-menu" role="menu" hidden>
+      <div
+        class="context-menu-item context-menu-submenu-trigger"
+        role="menuitem"
+        aria-haspopup="true"
+        aria-expanded="false"
+        tabindex="0"
+      >
+        <span class="context-menu-item-label">Priority</span>
+        <span
+          class="context-menu-current-priority"
+          id="context-menu-current-priority"
+          >None</span
+        >
+        <span class="context-menu-chevron" aria-hidden="true"></span>
+
+        <div
+          class="priority-submenu"
+          role="menu"
+          aria-label="Selectează prioritatea"
+        >
+          <button
+            class="context-menu-item priority-option"
+            data-action="priority-high"
+            role="menuitemradio"
+          >
+            <span class="priority-dot priority-dot-high"></span>
+            High
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <button
+            class="context-menu-item priority-option"
+            data-action="priority-medium"
+            role="menuitemradio"
+          >
+            <span class="priority-dot priority-dot-medium"></span>
+            Medium
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <button
+            class="context-menu-item priority-option"
+            data-action="priority-low"
+            role="menuitemradio"
+          >
+            <span class="priority-dot priority-dot-low"></span>
+            Low
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <div class="context-menu-separator"></div>
+          <button
+            class="context-menu-item priority-option"
+            data-action="priority-none"
+            role="menuitemradio"
+          >
+            <span class="priority-dot priority-dot-none"></span>
+            No priority
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+      <div class="context-menu-separator"></div>
+      <div
+        class="context-menu-item context-menu-submenu-trigger context-menu-tags-trigger"
+        role="menuitem"
+        aria-haspopup="true"
+        aria-expanded="false"
+        tabindex="0"
+      >
+        <span class="context-menu-item-label">Tags</span>
+        <span
+          class="context-menu-current-priority"
+          id="context-menu-current-tags"
+          >None</span
+        >
+        <span class="context-menu-chevron" aria-hidden="true"></span>
+
+        <div
+          class="priority-submenu tag-submenu"
+          role="menu"
+          aria-label="Selectează etichetele"
+        >
+          <div class="tag-group">
+            <div class="tag-group-label">Work Type</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Bug"
+              role="menuitemcheckbox"
+            >
+              Bug
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Feature"
+              role="menuitemcheckbox"
+            >
+              Feature
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Research"
+              role="menuitemcheckbox"
+            >
+              Research
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Meeting"
+              role="menuitemcheckbox"
+            >
+              Meeting
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Email"
+              role="menuitemcheckbox"
+            >
+              Email
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Documentation"
+              role="menuitemcheckbox"
+            >
+              Documentation
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Review"
+              role="menuitemcheckbox"
+            >
+              Review
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Planning"
+              role="menuitemcheckbox"
+            >
+              Planning
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Design"
+              role="menuitemcheckbox"
+            >
+              Design
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Work Type:Testing"
+              role="menuitemcheckbox"
+            >
+              Testing
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Personal</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Home"
+              role="menuitemcheckbox"
+            >
+              Home
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Family"
+              role="menuitemcheckbox"
+            >
+              Family
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Health"
+              role="menuitemcheckbox"
+            >
+              Health
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Fitness"
+              role="menuitemcheckbox"
+            >
+              Fitness
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Shopping"
+              role="menuitemcheckbox"
+            >
+              Shopping
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Finance"
+              role="menuitemcheckbox"
+            >
+              Finance
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Travel"
+              role="menuitemcheckbox"
+            >
+              Travel
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Education"
+              role="menuitemcheckbox"
+            >
+              Education
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Personal:Hobby"
+              role="menuitemcheckbox"
+            >
+              Hobby
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Status</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:Waiting"
+              role="menuitemcheckbox"
+            >
+              Waiting
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:Blocked"
+              role="menuitemcheckbox"
+            >
+              Blocked
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:In Progress"
+              role="menuitemcheckbox"
+            >
+              In Progress
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:Review"
+              role="menuitemcheckbox"
+            >
+              Review
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:Someday"
+              role="menuitemcheckbox"
+            >
+              Someday
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Status:Recurring"
+              role="menuitemcheckbox"
+            >
+              Recurring
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Time Required</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Time Required:5 min"
+              role="menuitemcheckbox"
+            >
+              5 min
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Time Required:15 min"
+              role="menuitemcheckbox"
+            >
+              15 min
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Time Required:30 min"
+              role="menuitemcheckbox"
+            >
+              30 min
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Time Required:1 hour+"
+              role="menuitemcheckbox"
+            >
+              1 hour+
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Time Required:Quick Win"
+              role="menuitemcheckbox"
+            >
+              Quick Win
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Energy Level</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Energy Level:Low Energy"
+              role="menuitemcheckbox"
+            >
+              Low Energy
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Energy Level:Medium Energy"
+              role="menuitemcheckbox"
+            >
+              Medium Energy
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Energy Level:High Focus"
+              role="menuitemcheckbox"
+            >
+              High Focus
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Project</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:Website"
+              role="menuitemcheckbox"
+            >
+              Website
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:Mobile App"
+              role="menuitemcheckbox"
+            >
+              Mobile App
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:Marketing"
+              role="menuitemcheckbox"
+            >
+              Marketing
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:School"
+              role="menuitemcheckbox"
+            >
+              School
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:Vacation"
+              role="menuitemcheckbox"
+            >
+              Vacation
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Project:Renovation"
+              role="menuitemcheckbox"
+            >
+              Renovation
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">People</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="People:Team"
+              role="menuitemcheckbox"
+            >
+              Team
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="People:Manager"
+              role="menuitemcheckbox"
+            >
+              Manager
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="People:Client"
+              role="menuitemcheckbox"
+            >
+              Client
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="People:Mom"
+              role="menuitemcheckbox"
+            >
+              Mom
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="People:John"
+              role="menuitemcheckbox"
+            >
+              John
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <div class="tag-group">
+            <div class="tag-group-label">Location</div>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Location:Office"
+              role="menuitemcheckbox"
+            >
+              Office
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Location:Home"
+              role="menuitemcheckbox"
+            >
+              Home
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Location:Grocery Store"
+              role="menuitemcheckbox"
+            >
+              Grocery Store
+            </button>
+            <button
+              class="context-menu-item tag-option"
+              data-action="toggle-tag"
+              data-tag="Location:Downtown"
+              role="menuitemcheckbox"
+            >
+              Downtown
+            </button>
+          </div>
+          <div class="context-menu-separator"></div>
+          <button
+            class="context-menu-item tag-option"
+            data-action="toggle-tag"
+            data-tag=""
+            role="menuitemcheckbox"
+          >
+            None
+          </button>
+        </div>
+      </div>
+      <div class="context-menu-separator"></div>
+      <div
+        class="context-menu-item context-menu-submenu-trigger context-menu-due-trigger"
+        role="menuitem"
+        aria-haspopup="true"
+        aria-expanded="false"
+        tabindex="0"
+      >
+        <span class="context-menu-item-label">Due Time</span>
+        <span
+          class="context-menu-current-priority"
+          id="context-menu-current-due"
+          >None</span
+        >
+        <span class="context-menu-chevron" aria-hidden="true"></span>
+
+        <div
+          class="priority-submenu due-submenu"
+          role="menu"
+          aria-label="Selectează timpul limită"
+        >
+          <button
+            class="context-menu-item due-option"
+            data-action="set-due"
+            data-due="Today"
+            role="menuitemradio"
+          >
+            <span class="due-dot due-dot-today"></span>
+            Today
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <button
+            class="context-menu-item due-option"
+            data-action="set-due"
+            data-due="Tomorrow"
+            role="menuitemradio"
+          >
+            <span class="due-dot due-dot-tomorrow"></span>
+            Tomorrow
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <button
+            class="context-menu-item due-option"
+            data-action="set-due"
+            data-due="This Week"
+            role="menuitemradio"
+          >
+            <span class="due-dot due-dot-week"></span>
+            This Week
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <button
+            class="context-menu-item due-option"
+            data-action="set-due"
+            data-due="Next Week"
+            role="menuitemradio"
+          >
+            <span class="due-dot due-dot-week"></span>
+            Next Week
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+          <div class="context-menu-separator"></div>
+          <button
+            class="context-menu-item due-option"
+            data-action="set-due"
+            data-due=""
+            role="menuitemradio"
+          >
+            <span class="due-dot"></span>
+            None
+            <span class="priority-check" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+      <div class="context-menu-separator"></div>
+      <button class="context-menu-item" data-action="move-up" role="menuitem">
+        Move Up
+      </button>
+      <button class="context-menu-item" data-action="move-down" role="menuitem">
+        Move Down
+      </button>
+      <button class="context-menu-item" data-action="duplicate" role="menuitem">
+        Duplicate
+      </button>
+      <button class="context-menu-item" data-action="edit" role="menuitem">
+        Edit
+      </button>
+      <button
+        class="context-menu-item danger"
+        data-action="delete"
+        role="menuitem"
+      >
+        Delete
+      </button>
+    </div>
 
     <script type="module" src="renderer.js"></script>
   </body>

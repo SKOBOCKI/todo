@@ -1,6 +1,6 @@
 const STORAGE_KEY = "simple-notes";
 
-function createId() {
+export function createId() {
   if (
     typeof crypto !== "undefined" &&
     typeof crypto.randomUUID === "function"
@@ -21,6 +21,22 @@ export function createNote(title, content) {
     content: safeContent,
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function normalizeTodoPriority(priority) {
+  const normalized = String(priority ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalized === "high" ||
+    normalized === "medium" ||
+    normalized === "low"
+  ) {
+    return normalized;
+  }
+
+  return null;
 }
 
 export function extractTitleAndContent(text) {
@@ -79,6 +95,46 @@ export function addNote(notes, title, content) {
   return [note, ...notes];
 }
 
+export function shouldCreateFileFromSearch(query, notes = [], todoFiles = []) {
+  const normalizedQuery = String(query ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalizedQuery) {
+    return false;
+  }
+
+  const hasNoteMatch = Array.isArray(notes)
+    ? notes.some((note) =>
+        String(note?.title ?? "")
+          .trim()
+          .toLowerCase()
+          .includes(normalizedQuery),
+      )
+    : false;
+
+  const hasTodoMatch = Array.isArray(todoFiles)
+    ? todoFiles.some((todo) => {
+        const titleMatch = String(todo?.title ?? "")
+          .trim()
+          .toLowerCase()
+          .includes(normalizedQuery);
+
+        const itemMatch = Array.isArray(todo?.items)
+          ? todo.items.some((item) =>
+              String(item?.text ?? "")
+                .trim()
+                .toLowerCase()
+                .includes(normalizedQuery),
+            )
+          : false;
+
+        return titleMatch || itemMatch;
+      })
+    : false;
+
+  return !hasNoteMatch && !hasTodoMatch;
+}
+
 export function updateNote(notes, noteId, updates) {
   return notes.map((note) => {
     if (note.id !== noteId) {
@@ -108,17 +164,28 @@ export function createTodoDocument(title = "United", items = []) {
   };
 }
 
-export function addTodoItemToDocument(todoDocument, text) {
+export function addTodoItemToDocument(todoDocument, text, priority) {
   const safeText = String(text ?? "").trim();
   if (!safeText) {
     return todoDocument;
+  }
+
+  const normalizedPriority = normalizeTodoPriority(priority);
+  const newItem = {
+    id: createId(),
+    text: safeText,
+    completed: false,
+  };
+
+  if (normalizedPriority) {
+    newItem.priority = normalizedPriority;
   }
 
   return {
     ...todoDocument,
     items: [
       ...(todoDocument?.items ?? []).map((item) => ({ ...item })),
-      { id: createId(), text: safeText, completed: false },
+      newItem,
     ],
     updatedAt: new Date().toISOString(),
   };
@@ -162,10 +229,22 @@ export function parseMarkdownNote(markdown, fallbackTitle = "United") {
 export function serializeTodoDocumentToMarkdown(todoDocument) {
   const title = String(todoDocument?.title ?? "").trim() || "United";
   const body = (todoDocument?.items ?? [])
-    .map(
-      (item) =>
-        `- [${item.completed ? "x" : " "}] ${String(item.text ?? "").trim()}`,
-    )
+    .map((item) => {
+      const safeText = String(item.text ?? "").trim();
+      const normalizedPriority = normalizeTodoPriority(item.priority);
+      const prioritySuffix = normalizedPriority
+        ? ` [priority: ${normalizedPriority}]`
+        : "";
+      const dueSuffix = item.dueTime
+        ? ` [due: ${String(item.dueTime).trim()}]`
+        : "";
+      const tagsSuffix =
+        Array.isArray(item.tags) && item.tags.length
+          ? ` [tags: ${item.tags.map((tag) => String(tag).trim()).join("|")}]`
+          : "";
+
+      return `- [${item.completed ? "x" : " "}] ${safeText}${prioritySuffix}${dueSuffix}${tagsSuffix}`;
+    })
     .join("\n");
 
   return body ? `# ${title}\n\n${body}` : `# ${title}`;
@@ -179,11 +258,62 @@ export function parseTodoMarkdown(markdown, fallbackTitle = "United") {
     .filter(Boolean)
     .map((line) => line.match(/^- \[( |x)\]\s*(.+)$/))
     .filter(Boolean)
-    .map((match) => ({
-      id: createId(),
-      text: String(match[2] ?? "").trim(),
-      completed: match[1] === "x",
-    }));
+    .map((match) => {
+      const rawText = String(match[2] ?? "").trim();
+      const metadata = {
+        priority: undefined,
+        dueTime: undefined,
+        tags: undefined,
+      };
+
+      const metaMatches = [
+        ...rawText.matchAll(/\[(priority|due|tags):\s*([^\]]+?)\]/gi),
+      ];
+      for (const metaMatch of metaMatches) {
+        const key = String(metaMatch[1] ?? "").toLowerCase();
+        const value = String(metaMatch[2] ?? "").trim();
+
+        if (key === "priority") {
+          metadata.priority = normalizeTodoPriority(value);
+        }
+
+        if (key === "due") {
+          metadata.dueTime = value || undefined;
+        }
+
+        if (key === "tags") {
+          const tagValues = value
+            .split("|")
+            .map((tag) => String(tag).trim())
+            .filter(Boolean);
+          if (tagValues.length) {
+            metadata.tags = tagValues;
+          }
+        }
+      }
+
+      const text = rawText
+        .replace(/(?:\s*\[(?:priority|due|tags):[^\]]+\]\s*)+$/gi, "")
+        .trim();
+
+      const item = {
+        id: createId(),
+        text,
+        completed: match[1] === "x",
+      };
+
+      if (metadata.priority) {
+        item.priority = metadata.priority;
+      }
+      if (metadata.dueTime) {
+        item.dueTime = metadata.dueTime;
+      }
+      if (Array.isArray(metadata.tags) && metadata.tags.length) {
+        item.tags = metadata.tags;
+      }
+
+      return item;
+    });
 
   return { title, items };
 }

@@ -8,6 +8,7 @@ import {
   addTodoItemToDocument,
   buildEditorContent,
   createMarkdownFilesMap,
+  normalizeTodoPriority,
   createNote,
   createTodoDocument,
   deleteNote,
@@ -18,6 +19,7 @@ import {
   saveNotes,
   serializeNoteToMarkdown,
   serializeTodoDocumentToMarkdown,
+  shouldCreateFileFromSearch,
   updateNote,
 } from "../notes.mjs";
 
@@ -96,6 +98,21 @@ test("uses United as the default todo title", () => {
   assert.equal(todoDocument.title, "United");
 });
 
+test("normalizes and stores todo priorities", () => {
+  const todoDocument = createTodoDocument("Listă");
+  const highPriority = addTodoItemToDocument(todoDocument, "Urgent", "high");
+  const fallbackPriority = addTodoItemToDocument(
+    highPriority,
+    "Mai târziu",
+    "unknown",
+  );
+
+  assert.equal(normalizeTodoPriority("HIGH"), "high");
+  assert.equal(normalizeTodoPriority("unexpected"), null);
+  assert.equal(highPriority.items[0].priority, "high");
+  assert.equal(fallbackPriority.items[1].priority, undefined);
+});
+
 test("serializes and parses note markdown", () => {
   const note = createNote("Titlu test", "Conținut test");
   const markdown = serializeNoteToMarkdown(note);
@@ -104,6 +121,49 @@ test("serializes and parses note markdown", () => {
   assert.equal(parsed.title, "Titlu test");
   assert.equal(parsed.content, "Conținut test");
   assert.match(markdown, /^# Titlu test/);
+});
+
+test("round-trips todo priorities through markdown", () => {
+  const todoDocument = createTodoDocument("Listă nouă");
+  const updatedDocument = addTodoItemToDocument(todoDocument, "Pâine", "high");
+  const markdown = serializeTodoDocumentToMarkdown(updatedDocument);
+  const parsed = parseTodoMarkdown(markdown);
+
+  assert.equal(parsed.title, "Listă nouă");
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].text, "Pâine");
+  assert.equal(parsed.items[0].priority, "high");
+  assert.match(markdown, /priority: high/);
+});
+
+test("round-trips todo due time through markdown", () => {
+  const todoDocument = createTodoDocument("Listă nouă");
+  const item = addTodoItemToDocument(todoDocument, "Pâine");
+  item.items[0].dueTime = "Tomorrow";
+
+  const markdown = serializeTodoDocumentToMarkdown(item);
+  const parsed = parseTodoMarkdown(markdown);
+
+  assert.equal(parsed.title, "Listă nouă");
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].text, "Pâine");
+  assert.equal(parsed.items[0].dueTime, "Tomorrow");
+  assert.match(markdown, /due: Tomorrow/);
+});
+
+test("round-trips todo tags through markdown", () => {
+  const todoDocument = createTodoDocument("Listă nouă");
+  const item = addTodoItemToDocument(todoDocument, "Pâine");
+  item.items[0].tags = ["Work Type:Bug", "Personal:Home"];
+
+  const markdown = serializeTodoDocumentToMarkdown(item);
+  const parsed = parseTodoMarkdown(markdown);
+
+  assert.equal(parsed.title, "Listă nouă");
+  assert.equal(parsed.items.length, 1);
+  assert.equal(parsed.items[0].text, "Pâine");
+  assert.deepEqual(parsed.items[0].tags, ["Work Type:Bug", "Personal:Home"]);
+  assert.match(markdown, /tags: Work Type:Bug\|Personal:Home/);
 });
 
 test("serializes and parses todo markdown", () => {
@@ -125,4 +185,16 @@ test("creates markdown file payloads for note migration", () => {
   assert.equal(Object.keys(files).length, 1);
   assert.match(files[`${note.id}.md`], /^# Notă veche/);
   assert.match(files[`${note.id}.md`], /Conținut migrat/);
+});
+
+test("creates a file from search when there are no matching results", () => {
+  const notes = [createNote("Existing note", "Content")];
+  const todoFiles = [createTodoDocument("Existing todo")];
+
+  assert.equal(shouldCreateFileFromSearch("New file", notes, todoFiles), true);
+  assert.equal(
+    shouldCreateFileFromSearch("Existing note", notes, todoFiles),
+    false,
+  );
+  assert.equal(shouldCreateFileFromSearch("", notes, todoFiles), false);
 });
