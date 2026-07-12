@@ -55,6 +55,20 @@ export function buildEditorContent(title, content) {
   return safeContent ? `${safeTitle}\n${safeContent}` : safeTitle;
 }
 
+export function syncNoteTitleAndContent(note, editorText) {
+  const safeNote = note && typeof note === "object" ? note : {};
+  const { title, content } = extractTitleAndContent(editorText);
+  const safeTitle = String(title ?? "").trim() || safeNote.title || "United";
+  const safeContent = String(content ?? "");
+
+  return {
+    ...safeNote,
+    title: safeTitle,
+    content: safeContent,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function loadNotes(storage = null) {
   if (!storage) {
     return [];

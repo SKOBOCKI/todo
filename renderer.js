@@ -9,6 +9,7 @@ import {
   extractTitleAndContent,
   loadNotes as loadLegacyNotesFromStorage,
   shouldCreateFileFromSearch,
+  syncNoteTitleAndContent,
   updateNote,
 } from "./notes.mjs";
 
@@ -466,9 +467,8 @@ function setTagCategoriesForTodoFile(fileId, categories) {
     return;
   }
 
-  const previousCategories = getTagCategoriesForTodoFile(fileId).map(
-    normalizeTagCategory,
-  );
+  const previousCategories =
+    getTagCategoriesForTodoFile(fileId).map(normalizeTagCategory);
   const nextCategories = categories
     .map(normalizeTagCategory)
     .filter((category) => category.tags.length > 0);
@@ -2941,10 +2941,8 @@ function renderTodoFilesSidebar() {
         <span>${todoFile.items?.length || 0} tasks</span>
       `;
       item.addEventListener("click", (event) => {
-        handlePrimaryFileOpen(
-          event,
-          { type: "todo", id: todoFile.id },
-          () => selectTodoFile(todoFile.id),
+        handlePrimaryFileOpen(event, { type: "todo", id: todoFile.id }, () =>
+          selectTodoFile(todoFile.id),
         );
       });
       attachFileContextMenu(item, { type: "todo", id: todoFile.id });
@@ -4008,6 +4006,18 @@ function selectNote(
   persistUiState({ selectedNoteId: note.id, activeView: "notes" });
 }
 
+function applyEditorTextToNote(editorText, noteId) {
+  if (!noteId) return null;
+
+  const note = notes.find((item) => item.id === noteId);
+  if (!note) return null;
+
+  const nextNote = syncNoteTitleAndContent(note, editorText);
+  notes = notes.map((item) => (item.id === noteId ? nextNote : item));
+  renderNotes("");
+  return nextNote;
+}
+
 const saveCanvasDebounced = debounce(async () => {
   if (
     !selectedNoteId &&
@@ -4024,20 +4034,18 @@ const saveCanvasDebounced = debounce(async () => {
 
   if (!selectedNoteId) return;
   const editorText = lastCanvasText.replace(/\u00A0/g, " ");
-  const { title, content } = extractTitleAndContent(editorText);
-  notes = updateNote(notes, selectedNoteId, { title, content });
+  const nextNote = applyEditorTextToNote(editorText, selectedNoteId);
+  if (!nextNote) return;
   await persistNotes(notes);
-  renderNotes("");
 }, 120);
 
 const saveRightCanvasDebounced = debounce(async () => {
   if (!selectedRightNoteId) return;
   const editorText = rightCanvasLastText.replace(/\u00A0/g, " ");
-  const { title, content } = extractTitleAndContent(editorText);
-  notes = updateNote(notes, selectedRightNoteId, { title, content });
+  const nextNote = applyEditorTextToNote(editorText, selectedRightNoteId);
+  if (!nextNote) return;
   await persistNotes(notes);
-  renderNotes("");
-  if (rightCanvasTitle) rightCanvasTitle.textContent = title;
+  if (rightCanvasTitle) rightCanvasTitle.textContent = nextNote.title;
 }, 120);
 
 async function createNewFile(folderName = null, { appendTab = false } = {}) {
@@ -4511,22 +4519,26 @@ document.addEventListener("keydown", (event) => {
 
 canvas?.addEventListener("input", () => {
   lastCanvasText = canvas.innerText;
+  applyEditorTextToNote(lastCanvasText, selectedNoteId);
   void saveCanvasDebounced();
 });
 canvas?.addEventListener("paste", () => {
   setTimeout(() => {
     lastCanvasText = canvas.innerText;
+    applyEditorTextToNote(lastCanvasText, selectedNoteId);
     void saveCanvasDebounced();
   }, 50);
 });
 
 rightCanvas?.addEventListener("input", () => {
   rightCanvasLastText = rightCanvas.innerText;
+  applyEditorTextToNote(rightCanvasLastText, selectedRightNoteId);
   void saveRightCanvasDebounced();
 });
 rightCanvas?.addEventListener("paste", () => {
   setTimeout(() => {
     rightCanvasLastText = rightCanvas.innerText;
+    applyEditorTextToNote(rightCanvasLastText, selectedRightNoteId);
     void saveRightCanvasDebounced();
   }, 50);
 });

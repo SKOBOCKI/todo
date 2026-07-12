@@ -20,6 +20,7 @@ import {
   serializeNoteToMarkdown,
   serializeTodoDocumentToMarkdown,
   shouldCreateFileFromSearch,
+  syncNoteTitleAndContent,
   updateNote,
 } from "../notes.mjs";
 
@@ -81,6 +82,14 @@ test("derives title from the first line of editor content", () => {
     buildEditorContent("Titlu nou", "Corpul notei"),
     "Titlu nou\nCorpul notei",
   );
+});
+
+test("syncs the note title with the first line of editor content", () => {
+  const note = createNote("Titlu vechi", "Conținut vechi");
+  const synced = syncNoteTitleAndContent(note, "Titlu nou\nCorpul notei");
+
+  assert.equal(synced.title, "Titlu nou");
+  assert.equal(synced.content, "Corpul notei");
 });
 
 test("creates todo documents and adds items", () => {
