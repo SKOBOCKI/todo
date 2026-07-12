@@ -231,7 +231,10 @@ function persistPriorityOptions() {
 
 function persistDueOptions() {
   try {
-    window.localStorage.setItem(DUE_OPTIONS_KEY, JSON.stringify(dueCategoryOptions));
+    window.localStorage.setItem(
+      DUE_OPTIONS_KEY,
+      JSON.stringify(dueCategoryOptions),
+    );
   } catch {
     // Ignore storage errors; the current session still updates.
   }
@@ -279,7 +282,11 @@ function readDefaultTagCategoriesFromMenu() {
         group.querySelector(".tag-group-label")?.textContent?.trim() ||
         `Category ${index + 1}`;
       const tags = Array.from(group.querySelectorAll(".tag-option"))
-        .map((option) => String(option.dataset.tag ?? "").split(":").pop())
+        .map((option) =>
+          String(option.dataset.tag ?? "")
+            .split(":")
+            .pop(),
+        )
         .map(normalizeTagEntry)
         .filter((tag) => tag.name);
 
@@ -304,9 +311,7 @@ function readTagSettings() {
           id: String(category.id || createFileId()),
           name: String(category.name || "Category").trim() || "Category",
           tags: Array.isArray(category.tags)
-            ? category.tags
-                .map(normalizeTagEntry)
-                .filter((tag) => tag.name)
+            ? category.tags.map(normalizeTagEntry).filter((tag) => tag.name)
             : [],
           pinned: Boolean(category.pinned),
         }))
@@ -378,7 +383,10 @@ function persistTagSettingsByFile() {
 
 function persistTagSettings() {
   try {
-    window.localStorage.setItem(TAG_SETTINGS_KEY, JSON.stringify(tagCategories));
+    window.localStorage.setItem(
+      TAG_SETTINGS_KEY,
+      JSON.stringify(tagCategories),
+    );
   } catch {
     // Ignore storage errors; the current session still updates.
   }
@@ -388,7 +396,7 @@ function getTagCategoriesForTodoFile(fileId) {
   if (!fileId) return tagCategories;
 
   if (!Array.isArray(tagCategoriesByFile[fileId])) {
-    tagCategoriesByFile[fileId] = cloneTagCategories();
+    tagCategoriesByFile[fileId] = [];
     persistTagSettingsByFile();
   }
 
@@ -408,8 +416,38 @@ function setTagCategoriesForTodoFile(fileId, categories) {
   persistTagSettingsByFile();
 }
 
+function ensureSelectedTagTodoFileId() {
+  if (!selectedTagTodoFileId && todoFiles.length > 0) {
+    selectedTagTodoFileId = selectedTodoFileId || todoFiles[0].id;
+  }
+}
+
 function getContextTagCategories() {
-  return getTagCategoriesForTodoFile(selectedTodoFileId || selectedTagTodoFileId);
+  if (activeView === "tags") {
+    ensureSelectedTagTodoFileId();
+    return getTagCategoriesForTodoFile(
+      selectedTagTodoFileId || selectedTodoFileId,
+    );
+  }
+
+  return getTagCategoriesForTodoFile(
+    selectedTodoFileId || selectedTagTodoFileId,
+  );
+}
+
+function setContextTagCategories(categories) {
+  if (activeView === "tags") {
+    ensureSelectedTagTodoFileId();
+    return setTagCategoriesForTodoFile(
+      selectedTagTodoFileId || selectedTodoFileId,
+      categories,
+    );
+  }
+
+  return setTagCategoriesForTodoFile(
+    selectedTodoFileId || selectedTagTodoFileId,
+    categories,
+  );
 }
 
 function getTagName(tag) {
@@ -427,7 +465,9 @@ function getTagValue(categoryName, tag) {
 function findTagColorByValue(tagValue) {
   const [categoryName, ...tagNameParts] = String(tagValue ?? "").split(":");
   const tagName = tagNameParts.join(":").trim();
-  const category = tagCategories.find((item) => item.name === categoryName);
+  const category = getContextTagCategories().find(
+    (item) => item.name === categoryName,
+  );
   const tag = category?.tags
     .map(normalizeTagEntry)
     .find((item) => item.name === tagName);
@@ -484,7 +524,9 @@ function renderPriorityContextMenu() {
 
   prioritySubmenu.innerHTML = "";
   priorityCategoryOptions.forEach((value) => {
-    const option = DEFAULT_PRIORITY_OPTIONS.find((item) => item.value === value);
+    const option = DEFAULT_PRIORITY_OPTIONS.find(
+      (item) => item.value === value,
+    );
     if (!option) return;
     prioritySubmenu.appendChild(createPriorityOptionButton(option));
   });
@@ -597,7 +639,10 @@ function renderTagContextMenu() {
     .querySelectorAll(".quick-tag-dropdown, .quick-tag-separator")
     .forEach((element) => element.remove());
 
-  const pinnedCategories = tagCategories.filter((category) => category.pinned);
+  const currentCategories = getContextTagCategories();
+  const pinnedCategories = currentCategories.filter(
+    (category) => category.pinned,
+  );
   const tagsSeparator = todoItemContextMenu.querySelector(
     ".tags-menu-separator",
   );
@@ -615,7 +660,7 @@ function renderTagContextMenu() {
   );
 
   tagsSubmenu.innerHTML = "";
-  tagCategories.forEach((category, index) => {
+  currentCategories.forEach((category, index) => {
     if (index > 0) {
       const separator = document.createElement("div");
       separator.className = "context-menu-separator";
@@ -855,6 +900,9 @@ function createSystemCategoryCard({
 function renderTagSettings() {
   if (!tagCategoryList) return;
 
+  ensureSelectedTagTodoFileId();
+  const currentCategories = getContextTagCategories();
+
   tagCategoryList.innerHTML = "";
   tagCategoryList.append(
     createSystemCategoryCard({
@@ -881,7 +929,7 @@ function renderTagSettings() {
     }),
   );
 
-  tagCategories.forEach((category, categoryIndex) => {
+  currentCategories.forEach((category, categoryIndex) => {
     const card = document.createElement("section");
     card.className = "tag-category-card";
 
@@ -894,11 +942,11 @@ function renderTagSettings() {
     nameInput.setAttribute("aria-label", "Category name");
     nameInput.addEventListener("change", () => {
       const nextName = normalizeTodoText(nameInput.value) || "Category";
-      tagCategories[categoryIndex] = {
-        ...category,
-        name: nextName,
-      };
-      persistTagSettings();
+      setContextTagCategories(
+        currentCategories.map((item, index) =>
+          index === categoryIndex ? { ...item, name: nextName } : item,
+        ),
+      );
       renderTagContextMenu();
       renderTagSettings();
     });
@@ -909,11 +957,13 @@ function renderTagSettings() {
     pinInput.type = "checkbox";
     pinInput.checked = category.pinned;
     pinInput.addEventListener("change", () => {
-      tagCategories[categoryIndex] = {
-        ...category,
-        pinned: pinInput.checked,
-      };
-      persistTagSettings();
+      setContextTagCategories(
+        currentCategories.map((item, index) =>
+          index === categoryIndex
+            ? { ...item, pinned: pinInput.checked }
+            : item,
+        ),
+      );
       renderTagContextMenu();
       renderTagSettings();
     });
@@ -926,8 +976,9 @@ function renderTagSettings() {
     deleteButton.className = "secondary-button danger";
     deleteButton.textContent = "Delete";
     deleteButton.addEventListener("click", () => {
-      tagCategories = tagCategories.filter((_, index) => index !== categoryIndex);
-      persistTagSettings();
+      setContextTagCategories(
+        currentCategories.filter((_, index) => index !== categoryIndex),
+      );
       renderTagContextMenu();
       renderTagSettings();
     });
@@ -947,16 +998,23 @@ function renderTagSettings() {
       colorInput.value = tagEntry.color;
       colorInput.setAttribute("aria-label", "Tag color");
       colorInput.addEventListener("input", () => {
-        const nextTags = category.tags.map((item, index) =>
-          index === tagIndex
-            ? { ...normalizeTagEntry(item), color: colorInput.value }
-            : normalizeTagEntry(item),
+        setContextTagCategories(
+          currentCategories.map((item, index) =>
+            index === categoryIndex
+              ? {
+                  ...item,
+                  tags: item.tags.map((tagItem, tagItemIndex) =>
+                    tagItemIndex === tagIndex
+                      ? {
+                          ...normalizeTagEntry(tagItem),
+                          color: colorInput.value,
+                        }
+                      : normalizeTagEntry(tagItem),
+                  ),
+                }
+              : item,
+          ),
         );
-        tagCategories[categoryIndex] = {
-          ...category,
-          tags: nextTags,
-        };
-        persistTagSettings();
         renderTagContextMenu();
       });
 
@@ -965,20 +1023,21 @@ function renderTagSettings() {
       tagInput.setAttribute("aria-label", "Tag");
       tagInput.addEventListener("change", () => {
         const nextTag = normalizeTodoText(tagInput.value);
-        const nextTags = category.tags.map(normalizeTagEntry);
-        if (nextTag) {
-          nextTags[tagIndex] = {
-            ...nextTags[tagIndex],
-            name: nextTag,
-          };
-        } else {
-          nextTags.splice(tagIndex, 1);
-        }
-        tagCategories[categoryIndex] = {
-          ...category,
-          tags: nextTags,
-        };
-        persistTagSettings();
+        setContextTagCategories(
+          currentCategories.map((item, index) => {
+            if (index !== categoryIndex) return item;
+            const nextTags = item.tags.map(normalizeTagEntry);
+            if (nextTag) {
+              nextTags[tagIndex] = {
+                ...nextTags[tagIndex],
+                name: nextTag,
+              };
+            } else {
+              nextTags.splice(tagIndex, 1);
+            }
+            return { ...item, tags: nextTags };
+          }),
+        );
         renderTagContextMenu();
         renderTagSettings();
       });
@@ -989,11 +1048,18 @@ function renderTagSettings() {
       removeTagButton.title = "Delete tag";
       removeTagButton.textContent = "×";
       removeTagButton.addEventListener("click", () => {
-        tagCategories[categoryIndex] = {
-          ...category,
-          tags: category.tags.filter((_, index) => index !== tagIndex),
-        };
-        persistTagSettings();
+        setContextTagCategories(
+          currentCategories.map((item, index) =>
+            index === categoryIndex
+              ? {
+                  ...item,
+                  tags: item.tags.filter(
+                    (_, tagIndexFilter) => tagIndexFilter !== tagIndex,
+                  ),
+                }
+              : item,
+          ),
+        );
         renderTagContextMenu();
         renderTagSettings();
       });
@@ -1019,14 +1085,19 @@ function renderTagSettings() {
     const addTag = () => {
       const nextTag = normalizeTodoText(addTagInput.value);
       if (!nextTag) return;
-      tagCategories[categoryIndex] = {
-        ...category,
-        tags: [
-          ...category.tags.map(normalizeTagEntry),
-          { name: nextTag, color: addColorInput.value },
-        ],
-      };
-      persistTagSettings();
+      setContextTagCategories(
+        currentCategories.map((item, index) =>
+          index === categoryIndex
+            ? {
+                ...item,
+                tags: [
+                  ...item.tags.map(normalizeTagEntry),
+                  { name: nextTag, color: addColorInput.value },
+                ],
+              }
+            : item,
+        ),
+      );
       renderTagContextMenu();
       renderTagSettings();
     };
@@ -1044,16 +1115,16 @@ function renderTagSettings() {
 }
 
 function addTagCategory() {
-  tagCategories = [
+  const currentCategories = getContextTagCategories();
+  setContextTagCategories([
     {
       id: createFileId(),
       name: "New category",
       tags: [{ name: "New tag", color: DEFAULT_TAG_COLOR }],
       pinned: true,
     },
-    ...tagCategories,
-  ];
-  persistTagSettings();
+    ...currentCategories,
+  ]);
   renderTagContextMenu();
   renderTagSettings();
 }
@@ -2300,10 +2371,11 @@ function renderOpenFileTabs() {
   if (!openFileTabs) return;
   openFileTabs.innerHTML = "";
 
-  openNoteIds = openNoteIds.filter((id) =>
-    id === DEFAULT_NOTE_TAB_ID ||
-    id === DRAFT_NOTE_TAB_ID ||
-    notes.some((note) => note.id === id),
+  openNoteIds = openNoteIds.filter(
+    (id) =>
+      id === DEFAULT_NOTE_TAB_ID ||
+      id === DRAFT_NOTE_TAB_ID ||
+      notes.some((note) => note.id === id),
   );
   openTodoFileIds = openTodoFileIds.filter((id) =>
     todoFiles.some((file) => file.id === id),
@@ -2680,6 +2752,41 @@ function renderTodoFilesSidebar() {
   if (moveTodoFileButton) {
     moveTodoFileButton.disabled = !selectedTodoFileId;
   }
+}
+
+function renderTagsTodoFileList() {
+  if (!tagsTodoFileList) return;
+
+  tagsTodoFileList.innerHTML = "";
+  if (todoFiles.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "todo-sidebar-empty";
+    empty.textContent = "No to-do files.";
+    tagsTodoFileList.appendChild(empty);
+    return;
+  }
+
+  ensureSelectedTagTodoFileId();
+  const fragment = document.createDocumentFragment();
+  todoFiles.forEach((todoFile) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `todo-sidebar-item${
+      todoFile.id === selectedTagTodoFileId ? " active" : ""
+    }`;
+    item.innerHTML = `
+      <strong>${escapeHtml(todoFile.title)}</strong>
+      <span>${todoFile.items?.length || 0} tasks</span>
+    `;
+    item.addEventListener("click", () => {
+      selectedTagTodoFileId = todoFile.id;
+      renderTagsTodoFileList();
+      renderTagSettings();
+    });
+    fragment.appendChild(item);
+  });
+
+  tagsTodoFileList.appendChild(fragment);
 }
 
 function normalizeTodoText(text) {
@@ -3368,6 +3475,8 @@ function showTagSettingsView() {
     button.classList.toggle("active", button.dataset.view === "tags");
   });
   updateRailInk("tags");
+  selectedTagTodoFileId = selectedTodoFileId || todoFiles[0]?.id || null;
+  renderTagsTodoFileList();
   renderTagSettings();
   persistUiState({ activeView: "tags" });
 }
@@ -3449,10 +3558,7 @@ function openDefaultNoteTab() {
   });
 }
 
-function showDraftNotePage({
-  preserveOpenTabs = false,
-  tabIndex = null,
-} = {}) {
+function showDraftNotePage({ preserveOpenTabs = false, tabIndex = null } = {}) {
   activeView = "notes";
   selectedNoteId = null;
 
@@ -3633,7 +3739,10 @@ function selectNote(
 }
 
 const saveCanvasDebounced = debounce(async () => {
-  if (!selectedNoteId && openNoteIds[activeNoteTabIndex] === DRAFT_NOTE_TAB_ID) {
+  if (
+    !selectedNoteId &&
+    openNoteIds[activeNoteTabIndex] === DRAFT_NOTE_TAB_ID
+  ) {
     const editorText = lastCanvasText.replace(/\u00A0/g, " ");
     const { title, content } = extractTitleAndContent(editorText);
     draftNoteContent = editorText || "United";
