@@ -71,9 +71,11 @@ if (isSoloWindow) {
 let notes = [];
 let selectedNoteId = null;
 let selectedRightNoteId = null;
+let selectedNoteIds = new Set();
 let todoFiles = [];
 let rightCanvasLastText = "";
 let selectedTodoFileId = null;
+let selectedTodoFileIds = new Set();
 let activeView = "notes";
 let lastCanvasText = "";
 let contextMenuTarget = null; // { type: 'note'|'todo', id: string }
@@ -161,10 +163,32 @@ const TAG_SETTINGS_KEY = "loop-todo-tag-settings";
 const TAG_SETTINGS_BY_FILE_KEY = "loop-todo-tag-settings-by-file";
 const CONTEXT_CATEGORY_SETTINGS_KEY = "loop-context-category-settings";
 const DEFAULT_TAG_COLOR = "#4f7cac";
+const DEFAULT_TODO_TAG_CATEGORIES = [
+  {
+    name: "Priority",
+    pinned: true,
+    tags: [
+      { name: "High", color: "#d65a4a" },
+      { name: "Medium", color: "#d9a441" },
+      { name: "Low", color: "#4f8f6f" },
+    ],
+  },
+  {
+    name: "Due Time",
+    pinned: true,
+    tags: [
+      { name: "Today", color: "#d65a4a" },
+      { name: "Tomorrow", color: "#d9a441" },
+      { name: "This Week", color: "#4f7cac" },
+      { name: "Next Week", color: "#7a63a8" },
+    ],
+  },
+];
 
 function normalizeTagEntry(tag) {
   if (tag && typeof tag === "object") {
     return {
+      id: String(tag.id || createFileId()),
       name: String(tag.name ?? "")
         .trim()
         .replace(/\s+/g, " "),
@@ -175,6 +199,7 @@ function normalizeTagEntry(tag) {
   }
 
   return {
+    id: createFileId(),
     name: String(tag ?? "")
       .trim()
       .replace(/\s+/g, " "),
@@ -217,6 +242,38 @@ function readPriorityOptions() {
 
 let priorityCategoryOptions = readPriorityOptions();
 let dueCategoryOptions = readDueOptions();
+
+function createDefaultTodoTagCategories() {
+  return DEFAULT_TODO_TAG_CATEGORIES.map((category) => ({
+    id: createFileId(),
+    name: category.name,
+    pinned: category.pinned,
+    tags: category.tags.map(normalizeTagEntry),
+  }));
+}
+
+function ensureTodoFileDefaultTagCategories(fileId) {
+  if (!fileId) return false;
+
+  const existingCategories = tagCategoriesByFile[fileId];
+  if (Array.isArray(existingCategories) && existingCategories.length > 0) {
+    return false;
+  }
+
+  tagCategoriesByFile[fileId] = createDefaultTodoTagCategories();
+  return true;
+}
+
+function ensureTodoFilesDefaultTagCategories() {
+  let changed = false;
+  todoFiles.forEach((todoFile) => {
+    changed = ensureTodoFileDefaultTagCategories(todoFile.id) || changed;
+  });
+
+  if (changed) {
+    persistTagSettingsByFile();
+  }
+}
 
 function persistPriorityOptions() {
   try {
@@ -395,8 +452,7 @@ function persistTagSettings() {
 function getTagCategoriesForTodoFile(fileId) {
   if (!fileId) return tagCategories;
 
-  if (!Array.isArray(tagCategoriesByFile[fileId])) {
-    tagCategoriesByFile[fileId] = [];
+  if (ensureTodoFileDefaultTagCategories(fileId)) {
     persistTagSettingsByFile();
   }
 
@@ -410,44 +466,48 @@ function setTagCategoriesForTodoFile(fileId, categories) {
     return;
   }
 
-  tagCategoriesByFile[fileId] = categories
+  const previousCategories = getTagCategoriesForTodoFile(fileId).map(
+    normalizeTagCategory,
+  );
+  const nextCategories = categories
     .map(normalizeTagCategory)
     .filter((category) => category.tags.length > 0);
+  tagCategoriesByFile[fileId] = nextCategories;
   persistTagSettingsByFile();
+  syncTodoItemsWithTagCategories(fileId, previousCategories, nextCategories);
+  if (fileId === selectedTodoFileId) {
+    renderTodoItems();
+  }
 }
 
 function ensureSelectedTagTodoFileId() {
+  if (
+    selectedTagTodoFileId &&
+    !todoFiles.some((todoFile) => todoFile.id === selectedTagTodoFileId)
+  ) {
+    selectedTagTodoFileId = null;
+  }
+
   if (!selectedTagTodoFileId && todoFiles.length > 0) {
     selectedTagTodoFileId = selectedTodoFileId || todoFiles[0].id;
   }
 }
 
-function getContextTagCategories() {
+function getActiveTagTodoFileId() {
   if (activeView === "tags") {
     ensureSelectedTagTodoFileId();
-    return getTagCategoriesForTodoFile(
-      selectedTagTodoFileId || selectedTodoFileId,
-    );
+    return selectedTagTodoFileId;
   }
 
-  return getTagCategoriesForTodoFile(
-    selectedTodoFileId || selectedTagTodoFileId,
-  );
+  return selectedTodoFileId;
+}
+
+function getContextTagCategories() {
+  return getTagCategoriesForTodoFile(getActiveTagTodoFileId());
 }
 
 function setContextTagCategories(categories) {
-  if (activeView === "tags") {
-    ensureSelectedTagTodoFileId();
-    return setTagCategoriesForTodoFile(
-      selectedTagTodoFileId || selectedTodoFileId,
-      categories,
-    );
-  }
-
-  return setTagCategoriesForTodoFile(
-    selectedTodoFileId || selectedTagTodoFileId,
-    categories,
-  );
+  return setTagCategoriesForTodoFile(getActiveTagTodoFileId(), categories);
 }
 
 function getTagName(tag) {
@@ -462,9 +522,16 @@ function getTagValue(categoryName, tag) {
   return `${categoryName}:${getTagName(tag)}`;
 }
 
-function findTagColorByValue(tagValue) {
+function parseTagValue(tagValue) {
   const [categoryName, ...tagNameParts] = String(tagValue ?? "").split(":");
-  const tagName = tagNameParts.join(":").trim();
+  return {
+    categoryName: categoryName.trim(),
+    tagName: tagNameParts.join(":").trim(),
+  };
+}
+
+function findTagColorByValue(tagValue) {
+  const { categoryName, tagName } = parseTagValue(tagValue);
   const category = getContextTagCategories().find(
     (item) => item.name === categoryName,
   );
@@ -472,6 +539,114 @@ function findTagColorByValue(tagValue) {
     .map(normalizeTagEntry)
     .find((item) => item.name === tagName);
   return tag?.color ?? DEFAULT_TAG_COLOR;
+}
+
+function findMatchingCategory(nextCategories, oldCategory, categoryIndex) {
+  return (
+    nextCategories.find((category) => category.id === oldCategory.id) ||
+    nextCategories.find((category) => category.name === oldCategory.name) ||
+    null
+  );
+}
+
+function findMatchingTag(nextTags, oldTag) {
+  const sameIdTag = nextTags.find((tag) => tag.id === oldTag.id);
+  if (sameIdTag) return sameIdTag;
+
+  const sameNameTag = nextTags.find((tag) => tag.name === oldTag.name);
+  if (sameNameTag) return sameNameTag;
+
+  return null;
+}
+
+function buildTagValueSyncMap(previousCategories, nextCategories) {
+  const valueMap = new Map();
+  const validValues = new Set();
+
+  nextCategories.forEach((category) => {
+    category.tags.map(normalizeTagEntry).forEach((tag) => {
+      validValues.add(getTagValue(category.name, tag));
+    });
+  });
+
+  previousCategories.forEach((oldCategory, categoryIndex) => {
+    const oldTags = oldCategory.tags.map(normalizeTagEntry);
+    const nextCategory = findMatchingCategory(
+      nextCategories,
+      oldCategory,
+      categoryIndex,
+    );
+    if (!nextCategory) return;
+
+    const nextTags = nextCategory.tags.map(normalizeTagEntry);
+    oldTags.forEach((oldTag) => {
+      const oldValue = getTagValue(oldCategory.name, oldTag);
+      const nextTag = findMatchingTag(nextTags, oldTag);
+      if (!nextTag) return;
+      valueMap.set(oldValue, getTagValue(nextCategory.name, nextTag));
+    });
+  });
+
+  return { valueMap, validValues };
+}
+
+function syncTodoItemsWithTagCategories(
+  fileId,
+  previousCategories,
+  nextCategories,
+) {
+  if (!fileId) return;
+
+  const { valueMap, validValues } = buildTagValueSyncMap(
+    previousCategories,
+    nextCategories,
+  );
+  let changed = false;
+
+  todoFiles = todoFiles.map((todoFile) => {
+    if (todoFile.id !== fileId) return todoFile;
+
+    let fileChanged = false;
+    const nextItems = todoFile.items.map((item) => {
+      if (!Array.isArray(item.tags) || item.tags.length === 0) {
+        return item;
+      }
+
+      const nextTags = Array.from(
+        new Set(
+          item.tags
+            .map((tagValue) => valueMap.get(tagValue) ?? tagValue)
+            .filter((tagValue) => validValues.has(tagValue)),
+        ),
+      );
+
+      if (
+        nextTags.length === item.tags.length &&
+        nextTags.every((tagValue, index) => tagValue === item.tags[index])
+      ) {
+        return item;
+      }
+
+      changed = true;
+      fileChanged = true;
+      if (nextTags.length === 0) {
+        const { tags, ...itemWithoutTags } = item;
+        return itemWithoutTags;
+      }
+
+      return { ...item, tags: nextTags };
+    });
+
+    return fileChanged
+      ? { ...todoFile, items: nextItems, updatedAt: new Date().toISOString() }
+      : todoFile;
+  });
+
+  if (changed) {
+    void persistTodoFiles(todoFiles);
+    renderTodoItems();
+    renderTodoFilesSidebar();
+  }
 }
 
 function createPriorityOptionButton(option) {
@@ -631,9 +806,13 @@ function createTagCategoryDropdown(category) {
 function renderTagContextMenu() {
   if (!todoItemContextMenu || !tagsSubmenu) return;
 
-  renderPriorityContextMenu();
-  renderDueContextMenu();
-  renderSystemContextCategories();
+  priorityMenuTrigger?.toggleAttribute("hidden", true);
+  dueMenuTrigger?.toggleAttribute("hidden", true);
+  todoItemContextMenu
+    ?.querySelector(".due-menu-separator")
+    ?.toggleAttribute("hidden", true);
+  closePrioritySubmenu(true);
+  closeDueSubmenu(true);
 
   todoItemContextMenu
     .querySelectorAll(".quick-tag-dropdown, .quick-tag-separator")
@@ -647,17 +826,14 @@ function renderTagContextMenu() {
     ".tags-menu-separator",
   );
   pinnedCategories.forEach((category, index) => {
-    if (contextCategorySettings.priority || index > 0) {
+    if (index > 0) {
       const separator = document.createElement("div");
       separator.className = "context-menu-separator quick-tag-separator";
       tagsSeparator?.before(separator);
     }
     tagsSeparator?.before(createTagCategoryDropdown(category));
   });
-  tagsSeparator?.toggleAttribute(
-    "hidden",
-    !contextCategorySettings.priority && pinnedCategories.length === 0,
-  );
+  tagsSeparator?.toggleAttribute("hidden", pinnedCategories.length === 0);
 
   tagsSubmenu.innerHTML = "";
   currentCategories.forEach((category, index) => {
@@ -904,30 +1080,6 @@ function renderTagSettings() {
   const currentCategories = getContextTagCategories();
 
   tagCategoryList.innerHTML = "";
-  tagCategoryList.append(
-    createSystemCategoryCard({
-      title: "Priority",
-      description: "Default category for importance level.",
-      settingKey: "priority",
-      options: [
-        ...priorityCategoryOptions
-          .map((value) =>
-            DEFAULT_PRIORITY_OPTIONS.find((option) => option.value === value),
-          )
-          .filter(Boolean)
-          .map((option) => option.label),
-        "No priority",
-      ],
-      editableType: "priority",
-    }),
-    createSystemCategoryCard({
-      title: "Due Time",
-      description: "Default category for the task due time.",
-      settingKey: "due",
-      options: [...dueCategoryOptions, "None"],
-      editableType: "due",
-    }),
-  );
 
   currentCategories.forEach((category, categoryIndex) => {
     const card = document.createElement("section");
@@ -1092,7 +1244,11 @@ function renderTagSettings() {
                 ...item,
                 tags: [
                   ...item.tags.map(normalizeTagEntry),
-                  { name: nextTag, color: addColorInput.value },
+                  {
+                    id: createFileId(),
+                    name: nextTag,
+                    color: addColorInput.value,
+                  },
                 ],
               }
             : item,
@@ -1593,11 +1749,45 @@ function attachFileContextMenu(element, target) {
 
 let todoContextMenuTarget = null;
 
-function handlePrimaryFileOpen(event, callback) {
+function syncPrimarySelection(type, id) {
+  if (type === "note") {
+    selectedNoteIds = id ? new Set([id]) : new Set();
+    return;
+  }
+
+  selectedTodoFileIds = id ? new Set([id]) : new Set();
+}
+
+function toggleMultiFileSelection(type, id) {
+  const selectedIds = type === "note" ? selectedNoteIds : selectedTodoFileIds;
+
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    selectedIds.add(id);
+  }
+
+  if (type === "note") {
+    selectedNoteIds = new Set(selectedIds);
+    renderNotes("");
+    return;
+  }
+
+  selectedTodoFileIds = new Set(selectedIds);
+  renderTodoFilesSidebar();
+}
+
+function handlePrimaryFileOpen(event, target, callback) {
   if (event.button !== 0) return;
   if (event.defaultPrevented) return;
 
   event.preventDefault();
+
+  if (event.shiftKey && target?.id) {
+    toggleMultiFileSelection(target.type, target.id);
+    return;
+  }
+
   callback?.();
 }
 
@@ -1920,6 +2110,7 @@ function closeTodoTab(tabIndex) {
 }
 
 const UI_STATE_KEY = "simple-notes-ui-state";
+const SELECTED_TODO_FILE_KEY = "loop-selected-todo-file-id";
 
 function readUiState() {
   if (!window?.localStorage) {
@@ -1942,6 +2133,26 @@ function persistUiState(patch = {}) {
   try {
     const nextState = { ...readUiState(), ...patch };
     window.localStorage.setItem(UI_STATE_KEY, JSON.stringify(nextState));
+  } catch {
+    // Ignore storage errors so the app remains usable.
+  }
+}
+
+function readPersistedTodoFileId() {
+  try {
+    return window.localStorage.getItem(SELECTED_TODO_FILE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedTodoFileId(fileId) {
+  try {
+    if (fileId) {
+      window.localStorage.setItem(SELECTED_TODO_FILE_KEY, fileId);
+    } else {
+      window.localStorage.removeItem(SELECTED_TODO_FILE_KEY);
+    }
   } catch {
     // Ignore storage errors so the app remains usable.
   }
@@ -2066,6 +2277,7 @@ async function syncTodoFilesFromDisk() {
   const previousSelectedTodoFileId = selectedTodoFileId;
   const loadedTodoFiles = await loadTodoFilesFromDisk();
   todoFiles = loadedTodoFiles;
+  ensureTodoFilesDefaultTagCategories();
 
   openTodoFileIds = openTodoFileIds.filter((id) =>
     todoFiles.some((file) => file.id === id),
@@ -2079,6 +2291,7 @@ async function syncTodoFilesFromDisk() {
   } else if (previousSelectedTodoFileId) {
     selectedTodoFileId = todoFiles[0]?.id ?? null;
   }
+  persistSelectedTodoFileId(selectedTodoFileId);
 
   renderTodoFilesSidebar();
   renderTodoItems();
@@ -2317,7 +2530,13 @@ function renderNotes(filter = "") {
 
     folderNotes.forEach((note) => {
       const item = document.createElement("div");
-      item.className = `note-item${note.id === selectedNoteId ? " active" : ""}`;
+      item.className = [
+        "note-item",
+        note.id === selectedNoteId ? "active" : "",
+        selectedNoteIds.has(note.id) ? "multi-selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       item.setAttribute("role", "listitem");
       item.draggable = true;
       item.innerHTML = `
@@ -2327,7 +2546,9 @@ function renderNotes(filter = "") {
         </div>
       `;
       item.addEventListener("click", (event) => {
-        handlePrimaryFileOpen(event, () => selectNote(note.id));
+        handlePrimaryFileOpen(event, { type: "note", id: note.id }, () =>
+          selectNote(note.id),
+        );
       });
       attachFileContextMenu(item, { type: "note", id: note.id });
       item.addEventListener("dragstart", (e) => {
@@ -2344,7 +2565,13 @@ function renderNotes(filter = "") {
   // Render root level notes
   rootNotes.forEach((note) => {
     const item = document.createElement("div");
-    item.className = `note-item${note.id === selectedNoteId ? " active" : ""}`;
+    item.className = [
+      "note-item",
+      note.id === selectedNoteId ? "active" : "",
+      selectedNoteIds.has(note.id) ? "multi-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     item.setAttribute("role", "listitem");
     item.draggable = true;
     item.innerHTML = `
@@ -2354,7 +2581,9 @@ function renderNotes(filter = "") {
       </div>
     `;
     item.addEventListener("click", (event) => {
-      handlePrimaryFileOpen(event, () => selectNote(note.id));
+      handlePrimaryFileOpen(event, { type: "note", id: note.id }, () =>
+        selectNote(note.id),
+      );
     });
     attachFileContextMenu(item, { type: "note", id: note.id });
     item.addEventListener("dragstart", (e) => {
@@ -2699,14 +2928,24 @@ function renderTodoFilesSidebar() {
     folderTodos.forEach((todoFile) => {
       const item = document.createElement("button");
       item.type = "button";
-      item.className = `todo-sidebar-item${todoFile.id === selectedTodoFileId ? " active" : ""}`;
+      item.className = [
+        "todo-sidebar-item",
+        todoFile.id === selectedTodoFileId ? "active" : "",
+        selectedTodoFileIds.has(todoFile.id) ? "multi-selected" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       item.draggable = true;
       item.innerHTML = `
         <strong>${escapeHtml(todoFile.title)}</strong>
         <span>${todoFile.items?.length || 0} tasks</span>
       `;
       item.addEventListener("click", (event) => {
-        handlePrimaryFileOpen(event, () => selectTodoFile(todoFile.id));
+        handlePrimaryFileOpen(
+          event,
+          { type: "todo", id: todoFile.id },
+          () => selectTodoFile(todoFile.id),
+        );
       });
       attachFileContextMenu(item, { type: "todo", id: todoFile.id });
       item.addEventListener("dragstart", (e) => {
@@ -2724,14 +2963,22 @@ function renderTodoFilesSidebar() {
   rootTodos.forEach((todoFile) => {
     const item = document.createElement("button");
     item.type = "button";
-    item.className = `todo-sidebar-item${todoFile.id === selectedTodoFileId ? " active" : ""}`;
+    item.className = [
+      "todo-sidebar-item",
+      todoFile.id === selectedTodoFileId ? "active" : "",
+      selectedTodoFileIds.has(todoFile.id) ? "multi-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     item.draggable = true;
     item.innerHTML = `
       <strong>${escapeHtml(todoFile.title)}</strong>
       <span>${todoFile.items?.length || 0} tasks</span>
     `;
     item.addEventListener("click", (event) => {
-      handlePrimaryFileOpen(event, () => selectTodoFile(todoFile.id));
+      handlePrimaryFileOpen(event, { type: "todo", id: todoFile.id }, () =>
+        selectTodoFile(todoFile.id),
+      );
     });
     attachFileContextMenu(item, { type: "todo", id: todoFile.id });
     item.addEventListener("dragstart", (e) => {
@@ -2779,14 +3026,28 @@ function renderTagsTodoFileList() {
       <span>${todoFile.items?.length || 0} tasks</span>
     `;
     item.addEventListener("click", () => {
-      selectedTagTodoFileId = todoFile.id;
+      setActiveTodoFile(todoFile.id);
       renderTagsTodoFileList();
       renderTagSettings();
+      renderTodoFilesSidebar();
+      renderTodoItems();
     });
     fragment.appendChild(item);
   });
 
   tagsTodoFileList.appendChild(fragment);
+}
+
+function setActiveTodoFile(todoFileId) {
+  const todoFile = todoFiles.find((file) => file.id === todoFileId);
+  if (!todoFile) return false;
+
+  selectedTodoFileId = todoFile.id;
+  selectedTagTodoFileId = todoFile.id;
+  syncPrimarySelection("todo", todoFile.id);
+  persistSelectedTodoFileId(todoFile.id);
+  persistUiState({ selectedTodoFileId: todoFile.id });
+  return true;
 }
 
 function normalizeTodoText(text) {
@@ -3292,6 +3553,8 @@ async function createNewTodoFile(folderName = null) {
     todoFile.folder = folderName;
     emptyTodoFolders.delete(folderName);
   }
+  tagCategoriesByFile[todoFile.id] = createDefaultTodoTagCategories();
+  persistTagSettingsByFile();
   todoFiles = await persistTodoFiles([todoFile, ...todoFiles]);
   openTodoFileIds = [todoFile.id];
   activeTodoTabIndex = 0;
@@ -3322,7 +3585,7 @@ function selectTodoFile(
     activeTodoTabIndex = 0;
   }
 
-  selectedTodoFileId = todoFileId;
+  setActiveTodoFile(todoFileId);
   renderTodoFilesSidebar();
   renderTodoItems();
   renderOpenFileTabs();
@@ -3398,6 +3661,7 @@ async function deleteTodoFile() {
     todoFiles.filter((todoFile) => todoFile.id !== selectedTodoFileId),
   );
   selectedTodoFileId = todoFiles[0]?.id ?? null;
+  persistSelectedTodoFileId(selectedTodoFileId);
   renderTodoFilesSidebar();
   renderTodoItems();
 }
@@ -3500,6 +3764,7 @@ function showNotesView() {
 
 function resetSelection() {
   selectedNoteId = null;
+  syncPrimarySelection("note", null);
   canvas.innerHTML = "";
   if (deleteButton) deleteButton.disabled = true;
   if (renameButton) renameButton.disabled = true;
@@ -3515,6 +3780,7 @@ function showDefaultNotePage({
 } = {}) {
   activeView = "notes";
   selectedNoteId = null;
+  syncPrimarySelection("note", null);
 
   if (preserveOpenTabs) {
     if (!openNoteIds.includes(DEFAULT_NOTE_TAB_ID)) {
@@ -3561,6 +3827,7 @@ function openDefaultNoteTab() {
 function showDraftNotePage({ preserveOpenTabs = false, tabIndex = null } = {}) {
   activeView = "notes";
   selectedNoteId = null;
+  syncPrimarySelection("note", null);
 
   if (preserveOpenTabs) {
     if (!openNoteIds.includes(DRAFT_NOTE_TAB_ID)) {
@@ -3631,6 +3898,8 @@ async function promoteDraftNoteToFile(title, content) {
 
 function resetTodoSelection() {
   selectedTodoFileId = null;
+  syncPrimarySelection("todo", null);
+  persistSelectedTodoFileId(null);
   if (todoInput) todoInput.value = "";
   showTodoView();
   persistUiState({ selectedTodoFileId: null, activeView: "todo" });
@@ -3715,6 +3984,7 @@ function selectNote(
   }
 
   selectedNoteId = note.id;
+  syncPrimarySelection("note", note.id);
   const initialContent = buildEditorContent(note.title, note.content);
   if (canvas) {
     canvas.hidden = false;
@@ -4300,25 +4570,35 @@ async function initApp() {
   const diskNotes = await loadNotesFromDisk();
   notes = await migrateLegacyNotesIfNeeded(diskNotes);
   todoFiles = await loadTodoFilesFromDisk();
+  ensureTodoFilesDefaultTagCategories();
 
   if (todoFiles.length === 0) {
     const defaultTodoFile = createTodoDocument("United");
+    tagCategoriesByFile[defaultTodoFile.id] = createDefaultTodoTagCategories();
+    persistTagSettingsByFile();
     todoFiles = await persistTodoFiles([defaultTodoFile]);
   }
 
   const persistedState = readUiState();
+  const persistedTodoFileId =
+    readPersistedTodoFileId() || persistedState.selectedTodoFileId;
   const restoredTodoFileId = todoFiles.find(
-    (todoFile) => todoFile.id === persistedState.selectedTodoFileId,
+    (todoFile) => todoFile.id === persistedTodoFileId,
   )?.id;
   const restoredNoteId = notes.find(
     (note) => note.id === persistedState.selectedNoteId,
   )?.id;
+  selectedTodoFileId = restoredTodoFileId ?? null;
+  selectedTagTodoFileId = restoredTodoFileId ?? null;
+  syncPrimarySelection("todo", selectedTodoFileId);
   const launchParams = launchQuery;
   const launchView = launchParams.get("view");
   const launchId = launchParams.get("id");
 
   if (launchView === "todo" && todoFiles.some((file) => file.id === launchId)) {
     selectedTodoFileId = launchId;
+    selectedTagTodoFileId = launchId;
+    syncPrimarySelection("todo", launchId);
     showTodoView();
     return;
   }
@@ -4348,7 +4628,6 @@ async function initApp() {
   }
 
   if (persistedState.activeView === "todo") {
-    selectedTodoFileId = restoredTodoFileId ?? null;
     renderTodoFilesSidebar();
     renderTodoItems();
     showTodoView();
@@ -4368,7 +4647,6 @@ async function initApp() {
     return;
   }
 
-  selectedTodoFileId = todoFiles[0]?.id ?? null;
   resetSelection();
   renderNotes();
   renderTodoFilesSidebar();
