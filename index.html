@@ -84,7 +84,7 @@
                   type="button"
                   title="New note"
                 >
-                  <span class="icon plus-icon"></span>
+                  <span class="icon add-file-icon"></span>
                 </button>
               </div>
             </div>
@@ -121,7 +121,7 @@
                   type="button"
                   title="New file"
                 >
-                  <span class="icon plus-icon"></span>
+                  <span class="icon add-file-icon"></span>
                 </button>
               </div>
             </div>
@@ -223,7 +223,7 @@
               </div>
             </section>
             <div class="todo-shell" id="todo-shell">
-              <div class="canvas-frame">
+              <div class="canvas-frame todo-column primary">
                 <div class="canvas-tabs-slot" id="todo-tabs-slot"></div>
                 <div class="todo-card">
                   <div class="todo-header-row">
@@ -249,6 +249,50 @@
                     />
                   </label>
                   <ul id="todo-list" class="todo-list" role="list"></ul>
+                </div>
+              </div>
+              <div
+                class="canvas-frame todo-column secondary"
+                id="right-todo-column"
+                hidden
+              >
+                <div class="canvas-side-header">
+                  <div class="canvas-side-title">
+                    <span id="right-todo-title">Right to-do</span>
+                  </div>
+                  <button
+                    type="button"
+                    id="close-right-todo-pane"
+                    class="close-right-pane"
+                    title="Close right to-do"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div class="todo-card">
+                  <div class="todo-header-row">
+                    <div>
+                      <p class="eyebrow">To-do list</p>
+                      <h2 id="right-todo-view-title">Tasks</h2>
+                    </div>
+                    <button
+                      id="add-right-todo"
+                      class="round-button"
+                      type="button"
+                      title="Add task"
+                    >
+                      <span class="icon plus-icon"></span>
+                    </button>
+                  </div>
+
+                  <label class="todo-input-wrap" for="right-todo-input">
+                    <input
+                      id="right-todo-input"
+                      class="todo-input"
+                      placeholder="Write a task..."
+                    />
+                  </label>
+                  <ul id="right-todo-list" class="todo-list" role="list"></ul>
                 </div>
               </div>
             </div>
@@ -438,6 +482,37 @@
             style="text-align: center; margin-top: 10px; width: 100%"
           >
             Cancel
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog
+      id="confirm-action-dialog"
+      class="dialog-modal folder-move-dialog confirm-action-dialog"
+      aria-label="Confirm action"
+    >
+      <div class="folder-move-dialog-content">
+        <h2 id="confirm-action-title">Confirm action</h2>
+        <p id="confirm-action-message" class="confirm-action-message"></p>
+        <label class="confirm-action-checkbox">
+          <input type="checkbox" id="confirm-action-dont-ask" />
+          <span>Don't show this message again</span>
+        </label>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            id="cancel-confirm-action-btn"
+            class="secondary-button"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            id="confirm-action-btn"
+            class="primary-button danger-button"
+          >
+            Delete
           </button>
         </div>
       </div>

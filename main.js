@@ -15,6 +15,8 @@ const dataVersions = {
   todos: 0,
 };
 
+const NOTES_MANIFEST_FILE = "notes-files.json";
+
 function getDataDir() {
   return path.join(app.getPath("userData"), "local-notes");
 }
@@ -23,10 +25,64 @@ async function ensureDir(dirPath) {
   await fs.promises.mkdir(dirPath, { recursive: true });
 }
 
+function sanitizeFileTitle(title) {
+  const safeTitle = String(title ?? "")
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "")
+    .trim();
+
+  return safeTitle || "United";
+}
+
+function getTitledMarkdownFileName(title) {
+  const safeTitle = sanitizeFileTitle(title);
+  return `${safeTitle}.md`;
+}
+
+function getIdFromMarkdownFileName(fileName) {
+  const baseName = path.basename(fileName, ".md");
+  const separatorIndex = baseName.lastIndexOf("--");
+  if (separatorIndex === -1) return baseName;
+
+  const id = baseName.slice(separatorIndex + 2).trim();
+  return id || baseName;
+}
+
+async function readNotesManifest(notesDir) {
+  try {
+    const raw = await fs.promises.readFile(
+      path.join(notesDir, NOTES_MANIFEST_FILE),
+      "utf8",
+    );
+    const manifest = JSON.parse(raw);
+    return manifest && typeof manifest === "object" ? manifest : {};
+  } catch {
+    return {};
+  }
+}
+
+function getUniqueMarkdownRelPath(folderName, title, usedRelPaths) {
+  const baseTitle = sanitizeFileTitle(title);
+  let index = 1;
+
+  while (true) {
+    const fileName = index === 1 ? `${baseTitle}.md` : `${baseTitle} ${index}.md`;
+    const relPath = folderName ? path.join(folderName, fileName) : fileName;
+    if (!usedRelPaths.has(relPath)) {
+      usedRelPaths.add(relPath);
+      return relPath;
+    }
+    index += 1;
+  }
+}
+
 async function loadNotesFromDisk() {
   const { parseMarkdownNote } = await import("./notes.mjs");
   const notesDir = path.join(getDataDir(), "notes");
   await ensureDir(notesDir);
+  const manifest = await readNotesManifest(notesDir);
 
   const notes = [];
   const entries = await fs.promises.readdir(notesDir, { withFileTypes: true });
@@ -38,10 +94,11 @@ async function loadNotesFromDisk() {
       const { title, content } = parseMarkdownNote(raw, "United");
       const stat = await fs.promises.stat(filePath);
       notes.push({
-        id: path.basename(entry.name, ".md"),
+        id: manifest[entry.name]?.id || getIdFromMarkdownFileName(entry.name),
         title,
         content,
         folder: null,
+        relPath: entry.name,
         updatedAt: stat.mtime.toISOString(),
       });
     } else if (entry.isDirectory()) {
@@ -56,11 +113,13 @@ async function loadNotesFromDisk() {
           const raw = await fs.promises.readFile(filePath, "utf8");
           const { title, content } = parseMarkdownNote(raw, "United");
           const stat = await fs.promises.stat(filePath);
+          const relPath = path.join(folderName, subEntry.name);
           notes.push({
-            id: path.basename(subEntry.name, ".md"),
+            id: manifest[relPath]?.id || getIdFromMarkdownFileName(subEntry.name),
             title,
             content,
             folder: folderName,
+            relPath,
             updatedAt: stat.mtime.toISOString(),
           });
         }
@@ -100,6 +159,9 @@ async function saveNotesToDisk(notes) {
   }
 
   const fileNames = new Set(existingFiles.map((f) => f.relPath));
+  const usedRelPaths = new Set();
+  const manifest = {};
+  const savedNotes = [];
 
   for (const note of notes) {
     const { serializeNoteToMarkdown } = await import("./notes.mjs");
@@ -110,11 +172,15 @@ async function saveNotesToDisk(notes) {
       content: String(note.content ?? ""),
     };
 
-    let relPath = `${safeNote.id}.md`;
-    if (note.folder) {
-      const targetDir = path.join(notesDir, note.folder);
+    const folderName = note.folder ? String(note.folder) : null;
+    const relPath = getUniqueMarkdownRelPath(
+      folderName,
+      safeNote.title,
+      usedRelPaths,
+    );
+    if (folderName) {
+      const targetDir = path.join(notesDir, folderName);
       await ensureDir(targetDir);
-      relPath = path.join(note.folder, `${safeNote.id}.md`);
     }
 
     const filePath = path.join(notesDir, relPath);
@@ -123,8 +189,16 @@ async function saveNotesToDisk(notes) {
       serializeNoteToMarkdown(safeNote),
       "utf8",
     );
+    manifest[relPath] = { id: safeNote.id };
+    savedNotes.push({ ...safeNote, folder: folderName, relPath });
     fileNames.delete(relPath);
   }
+
+  await fs.promises.writeFile(
+    path.join(notesDir, NOTES_MANIFEST_FILE),
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
 
   for (const relPath of fileNames) {
     const fileToDelete = existingFiles.find((f) => f.relPath === relPath);
@@ -147,7 +221,7 @@ async function saveNotesToDisk(notes) {
     }
   }
 
-  return notes;
+  return savedNotes;
 }
 
 async function loadTodoFilesFromDisk() {
@@ -176,10 +250,11 @@ async function loadTodoFilesFromDisk() {
       const { title, items } = parseTodoMarkdown(raw, "United");
       const stat = await fs.promises.stat(filePath);
       todoFiles.push({
-        id: path.basename(entry.name, ".md"),
+        id: getIdFromMarkdownFileName(entry.name),
         title,
         items,
         folder: null,
+        relPath: entry.name,
         updatedAt: stat.mtime.toISOString(),
       });
     } else if (entry.isDirectory()) {
@@ -194,11 +269,13 @@ async function loadTodoFilesFromDisk() {
           const raw = await fs.promises.readFile(filePath, "utf8");
           const { title, items } = parseTodoMarkdown(raw, "United");
           const stat = await fs.promises.stat(filePath);
+          const relPath = path.join(folderName, subEntry.name);
           todoFiles.push({
-            id: path.basename(subEntry.name, ".md"),
+            id: getIdFromMarkdownFileName(subEntry.name),
             title,
             items,
             folder: folderName,
+            relPath,
             updatedAt: stat.mtime.toISOString(),
           });
         }
@@ -242,6 +319,8 @@ async function saveTodoFilesToDisk(todoFiles) {
   }
 
   const fileNames = new Set(existingFiles.map((f) => f.relPath));
+  const usedRelPaths = new Set();
+  const savedTodoFiles = [];
 
   for (const todoFile of todoFiles) {
     const safeTodoFile = {
@@ -251,11 +330,15 @@ async function saveTodoFilesToDisk(todoFiles) {
       items: Array.isArray(todoFile.items) ? todoFile.items : [],
     };
 
-    let relPath = `${safeTodoFile.id}.md`;
-    if (todoFile.folder) {
-      const targetDir = path.join(todoDir, todoFile.folder);
+    const folderName = todoFile.folder ? String(todoFile.folder) : null;
+    const relPath = getUniqueMarkdownRelPath(
+      folderName,
+      safeTodoFile.title,
+      usedRelPaths,
+    );
+    if (folderName) {
+      const targetDir = path.join(todoDir, folderName);
       await ensureDir(targetDir);
-      relPath = path.join(todoFile.folder, `${safeTodoFile.id}.md`);
     }
 
     const filePath = path.join(todoDir, relPath);
@@ -264,6 +347,7 @@ async function saveTodoFilesToDisk(todoFiles) {
       serializeTodoDocumentToMarkdown(safeTodoFile),
       "utf8",
     );
+    savedTodoFiles.push({ ...safeTodoFile, folder: folderName, relPath });
     fileNames.delete(relPath);
   }
 
@@ -291,14 +375,14 @@ async function saveTodoFilesToDisk(todoFiles) {
   try {
     await fs.promises.writeFile(
       path.join(todoDir, "todo-files.json"),
-      JSON.stringify(todoFiles, null, 2),
+      JSON.stringify(savedTodoFiles, null, 2),
       "utf8",
     );
   } catch {
     // Ignore JSON backup failures.
   }
 
-  return todoFiles;
+  return savedTodoFiles;
 }
 
 function createWindow(options = {}) {
@@ -340,7 +424,11 @@ function getFilePath(type, file) {
     getDataDir(),
     type === "todo" ? "todo-files" : "notes",
   );
-  const fileName = `${id}.md`;
+  if (file?.relPath) {
+    return path.join(baseDir, String(file.relPath));
+  }
+
+  const fileName = getTitledMarkdownFileName(file?.title);
   return file?.folder
     ? path.join(baseDir, String(file.folder), fileName)
     : path.join(baseDir, fileName);

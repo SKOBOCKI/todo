@@ -20,6 +20,7 @@
   --bar: #171717;
   --accent: #171717;
   --accent-soft: rgba(23, 23, 23, 0.08);
+  --selection-extra: rgba(41, 95, 143, 0.1);
   --danger: #9b3630;
   --shadow: 0 22px 50px rgba(42, 37, 28, 0.12);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -782,6 +783,7 @@ button {
   mask-image: url("./Icos/add-folder-16.svg");
 }
 
+.add-file-icon,
 .archive-icon {
   -webkit-mask-image: url("./Icos/add-file-16.svg");
   mask-image: url("./Icos/add-file-16.svg");
@@ -795,6 +797,7 @@ button {
 .calendar-icon::before,
 .calendar-icon::after,
 .tag-icon::before,
+.add-file-icon::before,
 .archive-icon::before,
 .folder-plus-icon::before,
 .folder-plus-icon::after {
@@ -891,9 +894,9 @@ button {
   border-color: var(--line-strong);
 }
 
-.note-item.multi-selected {
-  background: var(--accent-soft);
-  border-color: var(--line-strong);
+.note-item.multi-selected:not(.active) {
+  background: var(--selection-extra);
+  border-color: rgba(41, 95, 143, 0.26);
 }
 
 .note-item strong {
@@ -981,9 +984,9 @@ button {
   border-color: var(--line-strong);
 }
 
-.todo-sidebar-item.multi-selected {
-  background: var(--accent-soft);
-  border-color: var(--line-strong);
+.todo-sidebar-item.multi-selected:not(.active) {
+  background: var(--selection-extra);
+  border-color: rgba(41, 95, 143, 0.26);
 }
 
 .todo-sidebar-item:not(.active):hover {
@@ -1182,8 +1185,21 @@ kbd {
   gap: 16px;
 }
 
+.todo-shell.split {
+  width: min(1280px, 100%);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
 .todo-shell .canvas-frame {
   height: 100%;
+}
+
+.todo-column.secondary {
+  display: none;
+}
+
+.todo-shell.split .todo-column.secondary {
+  display: grid;
 }
 
 .todo-header-row {
@@ -1665,6 +1681,7 @@ kbd {
 }
 
 .page-shell {
+  position: relative;
   min-height: 0;
   height: 100%;
   margin: 0;
@@ -1690,6 +1707,70 @@ kbd {
     serif;
   letter-spacing: 0.01em;
   white-space: pre-wrap;
+}
+
+.canvas.typing-caret-active {
+  caret-color: transparent;
+}
+
+.canvas.typing-pop {
+  animation: typing-pop 120ms var(--ease-out);
+}
+
+.typing-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  min-height: 18px;
+  border-radius: 999px;
+  background: #acabaa;
+  box-shadow:
+    0 0 0 1px rgba(23, 23, 23, 0.1),
+    0 0 18px rgba(172, 171, 170, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(56px, 46px, 0);
+  transition:
+    transform 86ms cubic-bezier(0.2, 0.85, 0.34, 1),
+    height 86ms var(--ease-out),
+    opacity 90ms var(--ease-out);
+  z-index: 2;
+}
+
+.typing-caret.visible {
+  opacity: 1;
+  animation: typing-caret-blink 1.1s steps(1, end) infinite;
+}
+
+.typing-caret.visible.settled {
+  animation: none;
+}
+
+@keyframes typing-pop {
+  0% {
+    text-shadow: 0 0 0 rgba(172, 171, 170, 0);
+  }
+
+  45% {
+    text-shadow: 0 0 12px rgba(172, 171, 170, 0.18);
+  }
+
+  100% {
+    text-shadow: 0 0 0 rgba(172, 171, 170, 0);
+  }
+}
+
+@keyframes typing-caret-blink {
+  0%,
+  54% {
+    opacity: 1;
+  }
+
+  55%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .editor-view.split .canvas {
@@ -2026,6 +2107,14 @@ kbd {
   background: #171717;
 }
 
+.folder-move-dialog .danger-button {
+  background: var(--danger);
+}
+
+.folder-move-dialog .danger-button:hover {
+  background: #7f2a25;
+}
+
 .folder-move-dialog .secondary-button {
   background: transparent;
   border: 1px solid var(--line);
@@ -2042,6 +2131,29 @@ kbd {
 .folder-move-dialog .secondary-button:hover {
   background: var(--panel);
   color: var(--ink);
+}
+
+.confirm-action-message {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.confirm-action-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.confirm-action-checkbox input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--danger);
 }
 
 .folder-icon {
@@ -2148,6 +2260,11 @@ kbd {
 .folder-header.drag-over {
   background: var(--accent-soft);
   border-color: var(--accent);
+}
+
+.folder-header.multi-selected {
+  background: var(--accent-soft);
+  border-color: var(--line-strong);
 }
 
 .folder-title {

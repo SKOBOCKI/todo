@@ -5,7 +5,6 @@ import {
   buildEditorContent,
   createTodoDocument,
   normalizeTodoPriority,
-  deleteNote,
   extractTitleAndContent,
   loadNotes as loadLegacyNotesFromStorage,
   shouldCreateFileFromSearch,
@@ -31,6 +30,15 @@ const notesSidebar = document.querySelector("#notes-sidebar");
 const todoSidebar = document.querySelector("#todo-sidebar");
 const tagsSidebar = document.querySelector("#tags-sidebar");
 const todoList = document.querySelector("#todo-list");
+const rightTodoColumn = document.querySelector("#right-todo-column");
+const rightTodoViewTitle = document.querySelector("#right-todo-view-title");
+const rightTodoTitle = document.querySelector("#right-todo-title");
+const rightTodoList = document.querySelector("#right-todo-list");
+const rightTodoInput = document.querySelector("#right-todo-input");
+const addRightTodoButton = document.querySelector("#add-right-todo");
+const closeRightTodoPaneButton = document.querySelector(
+  "#close-right-todo-pane",
+);
 const todoSidebarList = document.querySelector("#todo-sidebar-list");
 const tagsTodoFileList = document.querySelector("#tags-todo-file-list");
 const todoInput = document.querySelector("#todo-input");
@@ -63,6 +71,8 @@ const todoItemContextMenu = document.querySelector("#todo-item-context-menu");
 const addTagCategoryButton = document.querySelector("#add-tag-category");
 const tagCategoryList = document.querySelector("#tag-category-list");
 
+const typingCaretState = new WeakMap();
+
 const launchQuery = new URLSearchParams(window.location.search);
 const isSoloWindow = launchQuery.get("solo") === "1";
 if (isSoloWindow) {
@@ -73,10 +83,13 @@ let notes = [];
 let selectedNoteId = null;
 let selectedRightNoteId = null;
 let selectedNoteIds = new Set();
+let selectedNoteFolderNames = new Set();
 let todoFiles = [];
 let rightCanvasLastText = "";
 let selectedTodoFileId = null;
+let selectedRightTodoFileId = null;
 let selectedTodoFileIds = new Set();
+let selectedTodoFolderNames = new Set();
 let activeView = "notes";
 let lastCanvasText = "";
 let contextMenuTarget = null; // { type: 'note'|'todo', id: string }
@@ -85,13 +98,23 @@ let openTodoFileIds = [];
 let activeNoteTabIndex = 0;
 let activeTodoTabIndex = 0;
 let selectedTagTodoFileId = null;
+let selectionAnchors = {
+  note: null,
+  todo: null,
+  noteFolder: null,
+  todoFolder: null,
+};
 const DEFAULT_NOTE_TAB_ID = "__default_note_page__";
 const DRAFT_NOTE_TAB_ID = "__draft_note_page__";
+const DRAFT_TODO_TAB_ID = "__draft_todo_page__";
 let knownDataVersions = {
   notes: 0,
   todos: 0,
 };
 let draftNoteContent = "";
+let draftTodoTitle = "United";
+let isPromotingDraftTodo = false;
+let pendingDraftTodoTitle = "";
 
 const moveNoteButton = document.querySelector("#move-note");
 const moveTodoFileButton = document.querySelector("#move-todo-file");
@@ -117,6 +140,16 @@ const deleteFolderAllBtn = document.querySelector("#delete-folder-all-btn");
 const deleteFolderKeepBtn = document.querySelector("#delete-folder-keep-btn");
 const cancelDeleteFolderBtn = document.querySelector(
   "#cancel-delete-folder-btn",
+);
+const confirmActionDialog = document.querySelector("#confirm-action-dialog");
+const confirmActionTitle = document.querySelector("#confirm-action-title");
+const confirmActionMessage = document.querySelector("#confirm-action-message");
+const confirmActionDontAsk = document.querySelector(
+  "#confirm-action-dont-ask",
+);
+const confirmActionButton = document.querySelector("#confirm-action-btn");
+const cancelConfirmActionButton = document.querySelector(
+  "#cancel-confirm-action-btn",
 );
 
 const priorityMenuTrigger = todoItemContextMenu?.querySelector(
@@ -256,16 +289,34 @@ function createDefaultTodoTagCategories() {
 function ensureTodoFileDefaultTagCategories(fileId) {
   if (!fileId) return false;
 
-  const existingCategories = tagCategoriesByFile[fileId];
-  if (Array.isArray(existingCategories) && existingCategories.length > 0) {
+  const todoFile = todoFiles.find((file) => file.id === fileId);
+  const fileCategories = Array.isArray(todoFile?.categories)
+    ? todoFile.categories
+        .map(normalizeTagCategory)
+        .filter((category) => category.tags.length > 0)
+    : [];
+  if (fileCategories.length > 0) {
+    tagCategoriesByFile[fileId] = fileCategories;
     return false;
   }
 
-  tagCategoriesByFile[fileId] = createDefaultTodoTagCategories();
+  const storedCategories = Array.isArray(tagCategoriesByFile[fileId])
+    ? tagCategoriesByFile[fileId]
+        .map(normalizeTagCategory)
+        .filter((category) => category.tags.length > 0)
+    : [];
+  const nextCategories = storedCategories.length
+    ? storedCategories
+    : createDefaultTodoTagCategories();
+
+  tagCategoriesByFile[fileId] = nextCategories;
+  if (todoFile) {
+    todoFile.categories = cloneTagCategories(nextCategories);
+  }
   return true;
 }
 
-function ensureTodoFilesDefaultTagCategories() {
+async function ensureTodoFilesDefaultTagCategories() {
   let changed = false;
   todoFiles.forEach((todoFile) => {
     changed = ensureTodoFileDefaultTagCategories(todoFile.id) || changed;
@@ -273,6 +324,7 @@ function ensureTodoFilesDefaultTagCategories() {
 
   if (changed) {
     persistTagSettingsByFile();
+    todoFiles = await persistTodoFiles(todoFiles);
   }
 }
 
@@ -455,6 +507,18 @@ function getTagCategoriesForTodoFile(fileId) {
 
   if (ensureTodoFileDefaultTagCategories(fileId)) {
     persistTagSettingsByFile();
+    void persistTodoFiles(todoFiles);
+  }
+
+  const todoFile = todoFiles.find((file) => file.id === fileId);
+  const fileCategories = Array.isArray(todoFile?.categories)
+    ? todoFile.categories
+        .map(normalizeTagCategory)
+        .filter((category) => category.tags.length > 0)
+    : [];
+  if (fileCategories.length > 0) {
+    tagCategoriesByFile[fileId] = cloneTagCategories(fileCategories);
+    return fileCategories;
   }
 
   return tagCategoriesByFile[fileId];
@@ -473,8 +537,18 @@ function setTagCategoriesForTodoFile(fileId, categories) {
     .map(normalizeTagCategory)
     .filter((category) => category.tags.length > 0);
   tagCategoriesByFile[fileId] = nextCategories;
+  todoFiles = todoFiles.map((todoFile) =>
+    todoFile.id === fileId
+      ? {
+          ...todoFile,
+          categories: cloneTagCategories(nextCategories),
+          updatedAt: new Date().toISOString(),
+        }
+      : todoFile,
+  );
   persistTagSettingsByFile();
   syncTodoItemsWithTagCategories(fileId, previousCategories, nextCategories);
+  void persistTodoFiles(todoFiles);
   if (fileId === selectedTodoFileId) {
     renderTodoItems();
   }
@@ -532,7 +606,10 @@ function parseTagValue(tagValue) {
 
 function findTagColorByValue(tagValue) {
   const { categoryName, tagName } = parseTagValue(tagValue);
-  const category = getContextTagCategories().find(
+  const categories = selectedTodoFileId
+    ? getTagCategoriesForTodoFile(selectedTodoFileId)
+    : getContextTagCategories();
+  const category = categories.find(
     (item) => item.name === categoryName,
   );
   const tag = category?.tags
@@ -1721,6 +1798,7 @@ function showTodoItemContextMenu(event, target) {
   closePrioritySubmenu();
   closeTagsSubmenu();
   closeDueSubmenu();
+  renderTagContextMenu();
   syncPrioritySubmenuState(target?.todoId);
   syncTagsSubmenuState(target?.todoId);
   syncDueSubmenuState(target?.todoId);
@@ -1752,43 +1830,172 @@ let todoContextMenuTarget = null;
 function syncPrimarySelection(type, id) {
   if (type === "note") {
     selectedNoteIds = id ? new Set([id]) : new Set();
+    selectionAnchors.note = id ?? null;
     return;
   }
 
   selectedTodoFileIds = id ? new Set([id]) : new Set();
+  selectionAnchors.todo = id ?? null;
 }
 
-function toggleMultiFileSelection(type, id) {
-  const selectedIds = type === "note" ? selectedNoteIds : selectedTodoFileIds;
-
-  if (selectedIds.has(id)) {
-    selectedIds.delete(id);
-  } else {
-    selectedIds.add(id);
+function getSelectionState(selectionType) {
+  switch (selectionType) {
+    case "note":
+      return {
+        selected: selectedNoteIds,
+        anchorKey: "note",
+        commit: (nextSelected) => {
+          selectedNoteIds = nextSelected;
+          renderNotes("");
+        },
+      };
+    case "todo":
+      return {
+        selected: selectedTodoFileIds,
+        anchorKey: "todo",
+        commit: (nextSelected) => {
+          selectedTodoFileIds = nextSelected;
+          renderTodoFilesSidebar();
+        },
+      };
+    case "noteFolder":
+      return {
+        selected: selectedNoteFolderNames,
+        anchorKey: "noteFolder",
+        commit: (nextSelected) => {
+          selectedNoteFolderNames = nextSelected;
+          renderNotes("");
+        },
+      };
+    case "todoFolder":
+      return {
+        selected: selectedTodoFolderNames,
+        anchorKey: "todoFolder",
+        commit: (nextSelected) => {
+          selectedTodoFolderNames = nextSelected;
+          renderTodoFilesSidebar();
+        },
+      };
+    default:
+      return null;
   }
-
-  if (type === "note") {
-    selectedNoteIds = new Set(selectedIds);
-    renderNotes("");
-    return;
-  }
-
-  selectedTodoFileIds = new Set(selectedIds);
-  renderTodoFilesSidebar();
 }
 
-function handlePrimaryFileOpen(event, target, callback) {
+function getRangeSelectionIds(order, anchorId, targetId) {
+  if (!anchorId || !order.includes(anchorId) || !order.includes(targetId)) {
+    return [targetId];
+  }
+
+  const anchorIndex = order.indexOf(anchorId);
+  const targetIndex = order.indexOf(targetId);
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  return order.slice(start, end + 1);
+}
+
+function handleSelectionClick(event, selectionType, id, order = []) {
+  const state = getSelectionState(selectionType);
+  if (!state || !id) return false;
+
+  const shouldToggleOnly = event.ctrlKey || event.metaKey;
+  const shouldSelectRange = event.shiftKey && !shouldToggleOnly;
+
+  if (!shouldToggleOnly && !shouldSelectRange) return false;
+
+  event.preventDefault();
+
+  if (shouldToggleOnly) {
+    const nextSelected = new Set(state.selected);
+    if (nextSelected.has(id)) {
+      nextSelected.delete(id);
+    } else {
+      nextSelected.add(id);
+    }
+    selectionAnchors[state.anchorKey] = id;
+    state.commit(nextSelected);
+    return true;
+  }
+
+  if (
+    !selectionAnchors[state.anchorKey] ||
+    !order.includes(selectionAnchors[state.anchorKey])
+  ) {
+    selectionAnchors[state.anchorKey] = id;
+  }
+  const rangeIds = getRangeSelectionIds(
+    order,
+    selectionAnchors[state.anchorKey],
+    id,
+  );
+  state.commit(new Set(rangeIds));
+  return true;
+}
+
+function handlePrimaryFileOpen(event, target, callback, order = []) {
   if (event.button !== 0) return;
   if (event.defaultPrevented) return;
 
   event.preventDefault();
 
-  if (event.shiftKey && target?.id) {
-    toggleMultiFileSelection(target.type, target.id);
+  if (handleSelectionClick(event, target.type, target.id, order)) {
     return;
   }
 
   callback?.();
+}
+
+function setsMatch(firstSet, secondSet) {
+  if (firstSet.size !== secondSet.size) return false;
+  return Array.from(firstSet).every((value) => secondSet.has(value));
+}
+
+function clearSidebarSelections() {
+  const nextNoteIds = selectedNoteId ? new Set([selectedNoteId]) : new Set();
+  const nextTodoIds = selectedTodoFileId
+    ? new Set([selectedTodoFileId])
+    : new Set();
+  const shouldRenderNotes =
+    !setsMatch(selectedNoteIds, nextNoteIds) ||
+    selectedNoteFolderNames.size > 0;
+  const shouldRenderTodos =
+    !setsMatch(selectedTodoFileIds, nextTodoIds) ||
+    selectedTodoFolderNames.size > 0;
+
+  selectedNoteIds = nextNoteIds;
+  selectedTodoFileIds = nextTodoIds;
+  selectedNoteFolderNames = new Set();
+  selectedTodoFolderNames = new Set();
+  selectionAnchors.note = selectedNoteId;
+  selectionAnchors.todo = selectedTodoFileId;
+  selectionAnchors.noteFolder = null;
+  selectionAnchors.todoFolder = null;
+
+  if (shouldRenderNotes) renderNotes("");
+  if (shouldRenderTodos) renderTodoFilesSidebar();
+}
+
+function shouldKeepSidebarSelection(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+
+  return Boolean(
+    target.closest(
+      [
+        ".note-item",
+        ".todo-sidebar-item",
+        ".folder-header",
+        ".folder-action-button",
+        ".context-menu",
+        ".dialog-modal",
+        ".canvas-tabs",
+        "button",
+        "input",
+        "select",
+        "textarea",
+        "[contenteditable='true']",
+      ].join(", "),
+    ),
+  );
 }
 
 function createFileId() {
@@ -1807,6 +2014,22 @@ function getTargetFile(target = contextMenuTarget) {
     : todoFiles.find((todoFile) => todoFile.id === target.id);
 }
 
+function getSelectedFileIdsForAction(type, target = null) {
+  const selectedIds = type === "note" ? selectedNoteIds : selectedTodoFileIds;
+  const targetId =
+    target?.id ?? (type === "note" ? selectedNoteId : selectedTodoFileId);
+
+  if (target?.id && selectedIds.has(target.id)) {
+    return Array.from(selectedIds);
+  }
+
+  if (!target?.id && selectedIds.size > 1) {
+    return Array.from(selectedIds);
+  }
+
+  return targetId ? [targetId] : [];
+}
+
 function selectContextTarget(target = contextMenuTarget) {
   if (!target) return;
 
@@ -1823,6 +2046,7 @@ function openContextTargetInNewTab(target = contextMenuTarget) {
   if (!target) return;
 
   if (target.type === "note") {
+    openNoteIds = openNoteIds.filter((id) => id !== target.id);
     openNoteIds = [...openNoteIds, target.id];
     activeNoteTabIndex = openNoteIds.length - 1;
     selectNote(target.id, {
@@ -1833,12 +2057,7 @@ function openContextTargetInNewTab(target = contextMenuTarget) {
     return;
   }
 
-  openTodoFileIds = [...openTodoFileIds, target.id];
-  activeTodoTabIndex = openTodoFileIds.length - 1;
-  selectTodoFile(target.id, {
-    preserveOpenTabs: true,
-    tabIndex: activeTodoTabIndex,
-  });
+  openTodoFileInTab(target.id, { appendTab: true });
   showTodoView();
 }
 
@@ -1851,17 +2070,7 @@ function openContextTargetToRight(target = contextMenuTarget) {
     return;
   }
 
-  const ids = openTodoFileIds.slice();
-  const activeIndex = ids.indexOf(selectedTodoFileId);
-  const insertIndex = activeIndex >= 0 ? activeIndex + 1 : ids.length;
-
-  ids.splice(insertIndex, 0, target.id);
-  openTodoFileIds = ids;
-  activeTodoTabIndex = insertIndex;
-  selectTodoFile(target.id, {
-    preserveOpenTabs: true,
-    tabIndex: activeTodoTabIndex,
-  });
+  selectRightTodoFile(target.id);
   showTodoView();
 }
 
@@ -1879,6 +2088,8 @@ function selectRightNote(noteId) {
   if (!note) return;
 
   selectedRightNoteId = note.id;
+  editorView?.classList.add("split");
+  if (rightEditorColumn) rightEditorColumn.hidden = false;
   const initialContent = buildEditorContent(note.title, note.content);
   if (rightCanvas) rightCanvas.innerText = initialContent;
   rightCanvasLastText = initialContent;
@@ -1887,10 +2098,32 @@ function selectRightNote(noteId) {
 
 function closeRightPane() {
   selectedRightNoteId = null;
+  editorView?.classList.remove("split");
+  if (rightEditorColumn) rightEditorColumn.hidden = true;
   rightCanvasLastText = "";
   if (rightCanvas) rightCanvas.innerText = "";
   if (rightCanvasTitle) rightCanvasTitle.textContent = "";
   showEditor();
+}
+
+function selectRightTodoFile(todoFileId) {
+  const todoFile = todoFiles.find((file) => file.id === todoFileId);
+  if (!todoFile) return;
+
+  selectedRightTodoFileId = todoFile.id;
+  todoShell?.classList.add("split");
+  if (rightTodoColumn) rightTodoColumn.hidden = false;
+  renderRightTodoItems();
+}
+
+function closeRightTodoPane() {
+  selectedRightTodoFileId = null;
+  todoShell?.classList.remove("split");
+  if (rightTodoColumn) rightTodoColumn.hidden = true;
+  if (rightTodoTitle) rightTodoTitle.textContent = "Right to-do";
+  if (rightTodoViewTitle) rightTodoViewTitle.textContent = "Tasks";
+  if (rightTodoList) rightTodoList.innerHTML = "";
+  if (rightTodoInput) rightTodoInput.value = "";
 }
 
 async function copyContextFile(target = contextMenuTarget) {
@@ -2088,6 +2321,7 @@ function closeNoteTab(tabIndex) {
 function closeTodoTab(tabIndex) {
   if (tabIndex < 0 || tabIndex >= openTodoFileIds.length) return;
 
+  const closingTodoId = openTodoFileIds[tabIndex];
   if (tabIndex < activeTodoTabIndex) {
     activeTodoTabIndex -= 1;
   } else if (tabIndex === activeTodoTabIndex) {
@@ -2097,20 +2331,41 @@ function closeTodoTab(tabIndex) {
   }
 
   openTodoFileIds.splice(tabIndex, 1);
+  if (closingTodoId === DRAFT_TODO_TAB_ID) {
+    clearDraftTodoState();
+  }
   if (openTodoFileIds.length === 0) {
     resetTodoSelection();
     return;
   }
 
   const nextTodoFileId = openTodoFileIds[activeTodoTabIndex];
+  if (nextTodoFileId === DRAFT_TODO_TAB_ID) {
+    showDraftTodoPage({
+      preserveOpenTabs: true,
+      tabIndex: activeTodoTabIndex,
+    });
+    return;
+  }
+
   selectTodoFile(nextTodoFileId, {
     preserveOpenTabs: true,
     tabIndex: activeTodoTabIndex,
   });
 }
 
+function clearDraftTodoState() {
+  draftTodoTitle = "United";
+  pendingDraftTodoTitle = "";
+  if (todoViewTitle) {
+    delete todoViewTitle.dataset.draftTodo;
+  }
+}
+
 const UI_STATE_KEY = "simple-notes-ui-state";
 const SELECTED_TODO_FILE_KEY = "loop-selected-todo-file-id";
+const DELETE_CONFIRMATION_DISABLED_KEY =
+  "loop-delete-confirmation-disabled";
 
 function readUiState() {
   if (!window?.localStorage) {
@@ -2256,6 +2511,8 @@ async function syncNotesFromDisk() {
     notes.some((note) => note.id === previousRightNoteId)
   ) {
     selectedRightNoteId = previousRightNoteId;
+    editorView?.classList.add("split");
+    if (rightEditorColumn) rightEditorColumn.hidden = false;
     const rightNote = notes.find((note) => note.id === selectedRightNoteId);
     const rightContent = buildEditorContent(rightNote.title, rightNote.content);
     if (rightCanvas) rightCanvas.innerText = rightContent;
@@ -2263,6 +2520,8 @@ async function syncNotesFromDisk() {
     if (rightCanvasTitle) rightCanvasTitle.textContent = rightNote.title;
   } else if (previousRightNoteId) {
     selectedRightNoteId = null;
+    editorView?.classList.remove("split");
+    if (rightEditorColumn) rightEditorColumn.hidden = true;
     rightCanvasLastText = "";
     if (rightCanvas) rightCanvas.innerText = "";
     if (rightCanvasTitle) rightCanvasTitle.textContent = "";
@@ -2277,10 +2536,11 @@ async function syncTodoFilesFromDisk() {
   const previousSelectedTodoFileId = selectedTodoFileId;
   const loadedTodoFiles = await loadTodoFilesFromDisk();
   todoFiles = loadedTodoFiles;
-  ensureTodoFilesDefaultTagCategories();
+  await ensureTodoFilesDefaultTagCategories();
 
-  openTodoFileIds = openTodoFileIds.filter((id) =>
-    todoFiles.some((file) => file.id === id),
+  openTodoFileIds = openTodoFileIds.filter(
+    (id) =>
+      id === DRAFT_TODO_TAB_ID || todoFiles.some((file) => file.id === id),
   );
 
   if (
@@ -2291,10 +2551,18 @@ async function syncTodoFilesFromDisk() {
   } else if (previousSelectedTodoFileId) {
     selectedTodoFileId = todoFiles[0]?.id ?? null;
   }
+  if (
+    selectedRightTodoFileId &&
+    !todoFiles.some((file) => file.id === selectedRightTodoFileId)
+  ) {
+    closeRightTodoPane();
+  }
   persistSelectedTodoFileId(selectedTodoFileId);
 
   renderTodoFilesSidebar();
   renderTodoItems();
+  renderRightTodoItems();
+  renderTagContextMenu();
   renderSearchResults();
   renderOpenFileTabs();
 }
@@ -2363,6 +2631,22 @@ function renderNotes(filter = "") {
   });
 
   const rootNotes = filteredNotes.filter((n) => !n.folder);
+  const visibleFolderNames = allFolders.filter((folderName) => {
+    const folderNotes = notesByFolder[folderName] || [];
+    return (
+      !filter ||
+      folderNotes.length > 0 ||
+      folderName.toLowerCase().includes(filter.toLowerCase())
+    );
+  });
+  const visibleNoteIds = [
+    ...visibleFolderNames.flatMap((folderName) =>
+      collapsedNotesFolders.has(folderName)
+        ? []
+        : (notesByFolder[folderName] || []).map((note) => note.id),
+    ),
+    ...rootNotes.map((note) => note.id),
+  ];
 
   const totalDisplayed =
     rootNotes.length +
@@ -2387,17 +2671,9 @@ function renderNotes(filter = "") {
   const fragment = document.createDocumentFragment();
 
   // Render Folders
-  allFolders.forEach((folderName) => {
+  visibleFolderNames.forEach((folderName) => {
     const folderNotes = notesByFolder[folderName] || [];
     const isCollapsed = collapsedNotesFolders.has(folderName);
-
-    if (
-      filter &&
-      folderNotes.length === 0 &&
-      !folderName.toLowerCase().includes(filter.toLowerCase())
-    ) {
-      return;
-    }
 
     const folderGroup = document.createElement("div");
     folderGroup.className = "folder-group";
@@ -2406,7 +2682,13 @@ function renderNotes(filter = "") {
       (note) => note.id === selectedNoteId,
     );
     const header = document.createElement("div");
-    header.className = `folder-header${isFolderActive ? " active" : ""}`;
+    header.className = [
+      "folder-header",
+      isFolderActive ? "active" : "",
+      selectedNoteFolderNames.has(folderName) ? "multi-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     header.setAttribute("role", "button");
     header.setAttribute("aria-expanded", !isCollapsed);
 
@@ -2489,7 +2771,17 @@ function renderNotes(filter = "") {
     actions.append(plusBtn, renameBtn, deleteBtn);
     header.append(chevron, folderIcon, title, countBadge, actions);
 
-    header.addEventListener("click", () => {
+    header.addEventListener("click", (event) => {
+      if (
+        handleSelectionClick(
+          event,
+          "noteFolder",
+          folderName,
+          visibleFolderNames,
+        )
+      ) {
+        return;
+      }
       if (isCollapsed) {
         collapsedNotesFolders.delete(folderName);
       } else {
@@ -2546,8 +2838,11 @@ function renderNotes(filter = "") {
         </div>
       `;
       item.addEventListener("click", (event) => {
-        handlePrimaryFileOpen(event, { type: "note", id: note.id }, () =>
-          selectNote(note.id),
+        handlePrimaryFileOpen(
+          event,
+          { type: "note", id: note.id },
+          () => selectNote(note.id),
+          visibleNoteIds,
         );
       });
       attachFileContextMenu(item, { type: "note", id: note.id });
@@ -2581,8 +2876,11 @@ function renderNotes(filter = "") {
       </div>
     `;
     item.addEventListener("click", (event) => {
-      handlePrimaryFileOpen(event, { type: "note", id: note.id }, () =>
-        selectNote(note.id),
+      handlePrimaryFileOpen(
+        event,
+        { type: "note", id: note.id },
+        () => selectNote(note.id),
+        visibleNoteIds,
       );
     });
     attachFileContextMenu(item, { type: "note", id: note.id });
@@ -2606,8 +2904,9 @@ function renderOpenFileTabs() {
       id === DRAFT_NOTE_TAB_ID ||
       notes.some((note) => note.id === id),
   );
-  openTodoFileIds = openTodoFileIds.filter((id) =>
-    todoFiles.some((file) => file.id === id),
+  openTodoFileIds = openTodoFileIds.filter(
+    (id) =>
+      id === DRAFT_TODO_TAB_ID || todoFiles.some((file) => file.id === id),
   );
 
   if (
@@ -2705,6 +3004,22 @@ function renderOpenFileTabs() {
     });
   } else if (activeView === "todo" && openTodoFileIds.length > 0) {
     openTodoFileIds.forEach((todoFileId, index) => {
+      if (todoFileId === DRAFT_TODO_TAB_ID) {
+        tabsContainer.appendChild(
+          buildTab(
+            draftTodoTitle || "United",
+            index === activeTodoTabIndex,
+            () =>
+              showDraftTodoPage({
+                preserveOpenTabs: true,
+                tabIndex: index,
+              }),
+            () => closeTodoTab(index),
+          ),
+        );
+        return;
+      }
+
       const todoFile = todoFiles.find((file) => file.id === todoFileId);
       if (!todoFile) return;
 
@@ -2735,7 +3050,7 @@ function renderOpenFileTabs() {
   addButton.innerHTML = '<span class="icon plus-icon"></span>';
   addButton.addEventListener("click", () => {
     if (activeView === "todo") {
-      void createNewTodoFile();
+      openDraftTodoTab();
       return;
     }
 
@@ -2780,6 +3095,15 @@ function renderTodoFilesSidebar() {
   });
 
   const rootTodos = filteredTodos.filter((t) => !t.folder);
+  const visibleTodoFolderNames = allFolders;
+  const visibleTodoFileIds = [
+    ...visibleTodoFolderNames.flatMap((folderName) =>
+      collapsedTodoFolders.has(folderName)
+        ? []
+        : (todosByFolder[folderName] || []).map((todoFile) => todoFile.id),
+    ),
+    ...rootTodos.map((todoFile) => todoFile.id),
+  ];
 
   if (todoFiles.length === 0 && emptyTodoFolders.size === 0) {
     const empty = document.createElement("p");
@@ -2803,7 +3127,13 @@ function renderTodoFilesSidebar() {
       (todoFile) => todoFile.id === selectedTodoFileId,
     );
     const header = document.createElement("div");
-    header.className = `folder-header${isFolderActive ? " active" : ""}`;
+    header.className = [
+      "folder-header",
+      isFolderActive ? "active" : "",
+      selectedTodoFolderNames.has(folderName) ? "multi-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     header.setAttribute("role", "button");
     header.setAttribute("aria-expanded", !isCollapsed);
 
@@ -2886,7 +3216,17 @@ function renderTodoFilesSidebar() {
     actions.append(plusBtn, renameBtn, deleteBtn);
     header.append(chevron, folderIcon, title, countBadge, actions);
 
-    header.addEventListener("click", () => {
+    header.addEventListener("click", (event) => {
+      if (
+        handleSelectionClick(
+          event,
+          "todoFolder",
+          folderName,
+          visibleTodoFolderNames,
+        )
+      ) {
+        return;
+      }
       if (isCollapsed) {
         collapsedTodoFolders.delete(folderName);
       } else {
@@ -2941,8 +3281,11 @@ function renderTodoFilesSidebar() {
         <span>${todoFile.items?.length || 0} tasks</span>
       `;
       item.addEventListener("click", (event) => {
-        handlePrimaryFileOpen(event, { type: "todo", id: todoFile.id }, () =>
-          selectTodoFile(todoFile.id),
+        handlePrimaryFileOpen(
+          event,
+          { type: "todo", id: todoFile.id },
+          () => selectTodoFile(todoFile.id),
+          visibleTodoFileIds,
         );
       });
       attachFileContextMenu(item, { type: "todo", id: todoFile.id });
@@ -2974,8 +3317,11 @@ function renderTodoFilesSidebar() {
       <span>${todoFile.items?.length || 0} tasks</span>
     `;
     item.addEventListener("click", (event) => {
-      handlePrimaryFileOpen(event, { type: "todo", id: todoFile.id }, () =>
-        selectTodoFile(todoFile.id),
+      handlePrimaryFileOpen(
+        event,
+        { type: "todo", id: todoFile.id },
+        () => selectTodoFile(todoFile.id),
+        visibleTodoFileIds,
       );
     });
     attachFileContextMenu(item, { type: "todo", id: todoFile.id });
@@ -3044,7 +3390,40 @@ function setActiveTodoFile(todoFileId) {
   selectedTagTodoFileId = todoFile.id;
   syncPrimarySelection("todo", todoFile.id);
   persistSelectedTodoFileId(todoFile.id);
-  persistUiState({ selectedTodoFileId: todoFile.id });
+  persistUiState({ selectedTodoFileId: todoFile.id, activeView: "todo" });
+  return true;
+}
+
+function openTodoFileInTab(
+  todoFileId,
+  { appendTab = false, preserveOpenTabs = false, tabIndex = null } = {},
+) {
+  const todoFile = todoFiles.find((file) => file.id === todoFileId);
+  if (!todoFile) return false;
+
+  activeView = "todo";
+
+  if (appendTab) {
+    openTodoFileIds = openTodoFileIds.filter((id) => id !== todoFile.id);
+    openTodoFileIds = [...openTodoFileIds, todoFile.id];
+    activeTodoTabIndex = openTodoFileIds.length - 1;
+  } else if (preserveOpenTabs) {
+    if (!openTodoFileIds.includes(todoFile.id)) {
+      openTodoFileIds = [...openTodoFileIds, todoFile.id];
+    }
+    activeTodoTabIndex =
+      tabIndex === null ? openTodoFileIds.indexOf(todoFile.id) : tabIndex;
+  } else {
+    openTodoFileIds = [todoFile.id];
+    activeTodoTabIndex = 0;
+  }
+
+  setActiveTodoFile(todoFile.id);
+  renderTodoFilesSidebar();
+  renderTodoItems();
+  renderTagContextMenu();
+  renderOpenFileTabs();
+  persistUiState({ selectedTodoFileId: todoFile.id, activeView: "todo" });
   return true;
 }
 
@@ -3125,10 +3504,20 @@ async function updateTodoText(todoId, text) {
 function renderTodoItems() {
   if (!todoList || !todoViewTitle) return;
 
+  if (isDraftTodoActive()) {
+    showDraftTodoPage({
+      preserveOpenTabs: true,
+      tabIndex: activeTodoTabIndex,
+    });
+    return;
+  }
+
   const selectedFile = todoFiles.find(
     (todoFile) => todoFile.id === selectedTodoFileId,
   );
   if (!selectedFile) {
+    setTodoHeaderActionMode();
+    delete todoViewTitle.dataset.draftTodo;
     todoViewTitle.textContent = "Tasks";
     todoViewTitle.removeAttribute("contenteditable");
     todoList.innerHTML = "";
@@ -3140,6 +3529,8 @@ function renderTodoItems() {
   if (todoWelcome) todoWelcome.hidden = true;
   if (todoShell) todoShell.hidden = false;
 
+  setTodoHeaderActionMode();
+  delete todoViewTitle.dataset.draftTodo;
   todoViewTitle.textContent = selectedFile.title;
   todoViewTitle.setAttribute("contenteditable", "true");
   todoViewTitle.setAttribute("spellcheck", "false");
@@ -3277,6 +3668,101 @@ function renderTodoItems() {
   });
 
   todoList.appendChild(fragment);
+  renderRightTodoItems();
+}
+
+function setTodoHeaderActionMode() {
+  if (!addTodoButton) return;
+
+  addTodoButton.hidden = true;
+  addTodoButton.dataset.action = "hidden";
+  addTodoButton.title = "";
+  addTodoButton.setAttribute("aria-label", "Add task");
+  addTodoButton.classList.remove("todo-draft-close-button");
+  addTodoButton.innerHTML = '<span class="icon plus-icon"></span>';
+}
+
+function createTodoListItemElement(item, fileId, { compact = false } = {}) {
+  const todoItem = document.createElement("li");
+  todoItem.dataset.todoId = item.id;
+  const priority = normalizeTodoPriority(item.priority);
+  todoItem.className = [
+    "todo-item",
+    item.completed ? "done" : "",
+    priority ? `priority-${priority}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = Boolean(item.completed);
+  checkbox.addEventListener("change", () =>
+    void toggleTodoInFile(fileId, item.id),
+  );
+
+  const label = document.createElement("span");
+  label.className = "todo-text";
+  label.textContent = item.text;
+
+  todoItem.append(checkbox, label);
+
+  if (!compact && fileId === selectedTodoFileId) {
+    label.addEventListener("dblclick", () =>
+      startTodoTextEdit(item.id, label),
+    );
+  }
+
+  if (priority) {
+    const badge = document.createElement("span");
+    badge.className = `todo-priority-badge priority-${priority}`;
+    badge.textContent =
+      priority === "high" ? "High" : priority === "low" ? "Low" : "Medium";
+    todoItem.appendChild(badge);
+  }
+
+  if (item.dueTime) {
+    const badge = document.createElement("span");
+    badge.className = "todo-due-badge";
+    badge.textContent = item.dueTime;
+    todoItem.appendChild(badge);
+  }
+
+  return todoItem;
+}
+
+function renderRightTodoItems() {
+  if (!rightTodoList || !rightTodoViewTitle) return;
+
+  const selectedFile = todoFiles.find(
+    (todoFile) => todoFile.id === selectedRightTodoFileId,
+  );
+  if (!selectedFile) {
+    closeRightTodoPane();
+    return;
+  }
+
+  todoShell?.classList.add("split");
+  if (rightTodoColumn) rightTodoColumn.hidden = false;
+  if (rightTodoTitle) rightTodoTitle.textContent = selectedFile.title;
+  rightTodoViewTitle.textContent = selectedFile.title;
+  rightTodoList.innerHTML = "";
+
+  if (!selectedFile.items?.length) {
+    const empty = document.createElement("li");
+    empty.className = "todo-empty";
+    empty.textContent = "No tasks in this list.";
+    rightTodoList.appendChild(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  selectedFile.items.forEach((item) => {
+    fragment.appendChild(
+      createTodoListItemElement(item, selectedFile.id, { compact: true }),
+    );
+  });
+  rightTodoList.appendChild(fragment);
 }
 
 function findSelectedTodoItem(todoId) {
@@ -3358,24 +3844,38 @@ async function addTodo() {
   const value = todoInput?.value.trim();
   if (!value || !selectedTodoFileId) return;
 
+  await addTodoToFile(selectedTodoFileId, value);
+  if (todoInput) todoInput.value = "";
+}
+
+async function addTodoToFile(fileId, value) {
+  const safeValue = normalizeTodoText(value);
+  if (!safeValue || !fileId) return;
+
   todoFiles = await persistTodoFiles(
     todoFiles.map((todoFile) =>
-      todoFile.id === selectedTodoFileId
-        ? addTodoItemToDocument(todoFile, value)
+      todoFile.id === fileId
+        ? addTodoItemToDocument(todoFile, safeValue)
         : todoFile,
     ),
   );
-  if (todoInput) todoInput.value = "";
   renderTodoItems();
   renderTodoFilesSidebar();
+  renderRightTodoItems();
 }
 
 async function toggleTodo(todoId) {
   if (!selectedTodoFileId) return;
 
+  await toggleTodoInFile(selectedTodoFileId, todoId);
+}
+
+async function toggleTodoInFile(fileId, todoId) {
+  if (!fileId) return;
+
   todoFiles = await persistTodoFiles(
     todoFiles.map((todoFile) =>
-      todoFile.id !== selectedTodoFileId
+      todoFile.id !== fileId
         ? todoFile
         : {
             ...todoFile,
@@ -3390,6 +3890,7 @@ async function toggleTodo(todoId) {
   );
   renderTodoItems();
   renderTodoFilesSidebar();
+  renderRightTodoItems();
 }
 
 async function updateTodoPriority(todoId, priority) {
@@ -3495,6 +3996,12 @@ async function removeTodoBadge(todoId, type, value = null) {
 async function deleteTodo(todoId) {
   if (!selectedTodoFileId) return;
 
+  const accepted = await confirmDeleteAction({
+    title: "Delete to-do item",
+    message: "Delete this to-do item?",
+  });
+  if (!accepted) return;
+
   todoFiles = await persistTodoFiles(
     todoFiles.map((todoFile) =>
       todoFile.id !== selectedTodoFileId
@@ -3513,6 +4020,7 @@ async function deleteTodo(todoId) {
 async function updateTodoTags(todoId, tagValue) {
   if (!selectedTodoFileId || !todoId) return;
 
+  const { categoryName } = parseTagValue(tagValue);
   todoFiles = await persistTodoFiles(
     todoFiles.map((todoFile) =>
       todoFile.id !== selectedTodoFileId
@@ -3531,9 +4039,14 @@ async function updateTodoTags(todoId, tagValue) {
               }
 
               const hasTag = currentTags.includes(tagValue);
+              const tagsWithoutSameCategory = categoryName
+                ? currentTags.filter(
+                    (tag) => parseTagValue(tag).categoryName !== categoryName,
+                  )
+                : currentTags;
               const nextTags = hasTag
                 ? currentTags.filter((tag) => tag !== tagValue)
-                : [...currentTags, tagValue];
+                : [...tagsWithoutSameCategory, tagValue];
 
               return { ...item, tags: nextTags };
             }),
@@ -3545,23 +4058,128 @@ async function updateTodoTags(todoId, tagValue) {
   renderTodoFilesSidebar();
 }
 
-async function createNewTodoFile(folderName = null) {
+async function createNewTodoFile(folderName = null, { appendTab = false } = {}) {
   const todoFile = createTodoDocument("United");
+  const defaultCategories = createDefaultTodoTagCategories();
+  todoFile.categories = cloneTagCategories(defaultCategories);
   if (folderName) {
     todoFile.folder = folderName;
     emptyTodoFolders.delete(folderName);
   }
-  tagCategoriesByFile[todoFile.id] = createDefaultTodoTagCategories();
+  tagCategoriesByFile[todoFile.id] = cloneTagCategories(defaultCategories);
   persistTagSettingsByFile();
   todoFiles = await persistTodoFiles([todoFile, ...todoFiles]);
-  openTodoFileIds = [todoFile.id];
-  activeTodoTabIndex = 0;
-  selectedTodoFileId = todoFile.id;
-  renderTodoFilesSidebar();
-  renderTodoItems();
-  renderOpenFileTabs();
+  openTodoFileInTab(todoFile.id, { appendTab });
   if (todoInput) todoInput.value = "";
   focusTodoTitle();
+}
+
+function showDraftTodoPage({ preserveOpenTabs = false, tabIndex = null } = {}) {
+  activeView = "todo";
+  selectedTodoFileId = null;
+  selectedTagTodoFileId = null;
+  syncPrimarySelection("todo", null);
+
+  if (preserveOpenTabs) {
+    if (!openTodoFileIds.includes(DRAFT_TODO_TAB_ID)) {
+      openTodoFileIds = [...openTodoFileIds, DRAFT_TODO_TAB_ID];
+    }
+    if (tabIndex !== null) {
+      activeTodoTabIndex = tabIndex;
+    }
+  } else {
+    openTodoFileIds = [DRAFT_TODO_TAB_ID];
+    activeTodoTabIndex = 0;
+  }
+
+  if (todoInput) todoInput.value = "";
+  if (todoWelcome) todoWelcome.hidden = true;
+  if (todoShell) todoShell.hidden = false;
+  setTodoHeaderActionMode();
+  if (todoViewTitle) {
+    todoViewTitle.textContent = draftTodoTitle || "United";
+    todoViewTitle.dataset.draftTodo = "true";
+    todoViewTitle.setAttribute("contenteditable", "true");
+    todoViewTitle.setAttribute("spellcheck", "false");
+  }
+  if (todoList) {
+    todoList.innerHTML = "";
+    const empty = document.createElement("li");
+    empty.className = "todo-empty";
+    empty.textContent = "No tasks in this list.";
+    todoList.appendChild(empty);
+  }
+
+  renderTodoFilesSidebar();
+  renderTagContextMenu();
+  renderOpenFileTabs();
+  persistSelectedTodoFileId(null);
+  persistUiState({ selectedTodoFileId: null, activeView: "todo" });
+  railButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === "todo");
+  });
+  updateRailInk("todo");
+  focusTodoTitle();
+}
+
+function openDraftTodoTab() {
+  const existingIndex = openTodoFileIds.indexOf(DRAFT_TODO_TAB_ID);
+  if (existingIndex >= 0) {
+    showDraftTodoPage({
+      preserveOpenTabs: true,
+      tabIndex: existingIndex,
+    });
+    return;
+  }
+
+  draftTodoTitle = "United";
+  openTodoFileIds = [...openTodoFileIds, DRAFT_TODO_TAB_ID];
+  showDraftTodoPage({
+    preserveOpenTabs: true,
+    tabIndex: openTodoFileIds.length - 1,
+  });
+}
+
+async function promoteDraftTodoToFile(title) {
+  const safeTitle = normalizeTodoTitle(title) || "United";
+  if (safeTitle === "United") return;
+  pendingDraftTodoTitle = safeTitle;
+  if (isPromotingDraftTodo) return;
+  if (!openTodoFileIds.includes(DRAFT_TODO_TAB_ID)) {
+    openTodoFileIds = [...openTodoFileIds, DRAFT_TODO_TAB_ID];
+    activeTodoTabIndex = openTodoFileIds.length - 1;
+  }
+
+  isPromotingDraftTodo = true;
+  const todoFile = createTodoDocument(pendingDraftTodoTitle);
+  const defaultCategories = createDefaultTodoTagCategories();
+  todoFile.categories = cloneTagCategories(defaultCategories);
+  tagCategoriesByFile[todoFile.id] = cloneTagCategories(defaultCategories);
+  persistTagSettingsByFile();
+  try {
+    todoFiles = await persistTodoFiles([todoFile, ...todoFiles]);
+    const finalTitle = pendingDraftTodoTitle;
+    if (finalTitle && finalTitle !== todoFile.title) {
+      todoFile.title = finalTitle;
+      todoFile.updatedAt = new Date().toISOString();
+      todoFiles = await persistTodoFiles(
+        todoFiles.map((file) => (file.id === todoFile.id ? todoFile : file)),
+      );
+    }
+    draftTodoTitle = "United";
+    pendingDraftTodoTitle = "";
+    if (todoViewTitle) delete todoViewTitle.dataset.draftTodo;
+    openTodoFileIds = openTodoFileIds.map((id) =>
+      id === DRAFT_TODO_TAB_ID ? todoFile.id : id,
+    );
+    activeTodoTabIndex = openTodoFileIds.indexOf(todoFile.id);
+    openTodoFileInTab(todoFile.id, {
+      preserveOpenTabs: true,
+      tabIndex: activeTodoTabIndex,
+    });
+  } finally {
+    isPromotingDraftTodo = false;
+  }
 }
 
 function selectTodoFile(
@@ -3570,24 +4188,7 @@ function selectTodoFile(
 ) {
   const todoFile = todoFiles.find((file) => file.id === todoFileId);
   if (!todoFile) return;
-
-  if (preserveOpenTabs) {
-    if (!openTodoFileIds.includes(todoFile.id)) {
-      openTodoFileIds = [...openTodoFileIds, todoFile.id];
-    }
-    if (tabIndex !== null) {
-      activeTodoTabIndex = tabIndex;
-    }
-  } else {
-    openTodoFileIds = [todoFile.id];
-    activeTodoTabIndex = 0;
-  }
-
-  setActiveTodoFile(todoFileId);
-  renderTodoFilesSidebar();
-  renderTodoItems();
-  renderOpenFileTabs();
-  persistUiState({ selectedTodoFileId: todoFileId, activeView: "todo" });
+  openTodoFileInTab(todoFileId, { preserveOpenTabs, tabIndex });
 }
 
 async function renameTodoFile() {
@@ -3643,25 +4244,64 @@ function updateSelectedTodoTitle(title) {
   );
 }
 
+function isDraftTodoActive() {
+  const hasDraftTab = openTodoFileIds.includes(DRAFT_TODO_TAB_ID);
+  return (
+    (todoViewTitle?.dataset.draftTodo === "true" && hasDraftTab) ||
+    (activeView === "todo" &&
+      !selectedTodoFileId &&
+      hasDraftTab)
+  );
+}
+
 const saveTodoTitleDebounced = debounce(async () => {
   if (!selectedTodoFileId) return;
 
   todoFiles = await persistTodoFiles(todoFiles);
   renderTodoFilesSidebar();
+  renderRightTodoItems();
   renderOpenFileTabs();
 }, 120);
 
-async function deleteTodoFile() {
-  if (!selectedTodoFileId) return;
-  if (!confirm("Delete the selected to-do file?")) return;
+async function deleteTodoFile(target = null) {
+  const idsToDelete = getSelectedFileIdsForAction("todo", target);
+  if (idsToDelete.length === 0) return;
 
-  todoFiles = await persistTodoFiles(
-    todoFiles.filter((todoFile) => todoFile.id !== selectedTodoFileId),
+  const confirmedIds = await confirmFileDeletes(
+    idsToDelete
+      .map((id) => todoFiles.find((todoFile) => todoFile.id === id))
+      .filter(Boolean),
+    {
+      title: "Delete to-do file",
+      message: (todoFile) => `Delete "${todoFile.title}"?`,
+    },
   );
-  selectedTodoFileId = todoFiles[0]?.id ?? null;
+  if (confirmedIds.length === 0) return;
+
+  const deleteIdSet = new Set(confirmedIds);
+  todoFiles = await persistTodoFiles(
+    todoFiles.filter((todoFile) => !deleteIdSet.has(todoFile.id)),
+  );
+  confirmedIds.forEach((id) => {
+    delete tagCategoriesByFile[id];
+  });
+  persistTagSettingsByFile();
+  openTodoFileIds = openTodoFileIds.filter((id) => !deleteIdSet.has(id));
+  selectedTodoFileIds = new Set();
+  selectedTodoFileId = deleteIdSet.has(selectedTodoFileId)
+    ? (todoFiles[0]?.id ?? null)
+    : selectedTodoFileId;
+  if (deleteIdSet.has(selectedRightTodoFileId)) {
+    closeRightTodoPane();
+  }
+  selectedTagTodoFileId = deleteIdSet.has(selectedTagTodoFileId)
+    ? selectedTodoFileId
+    : selectedTagTodoFileId;
   persistSelectedTodoFileId(selectedTodoFileId);
   renderTodoFilesSidebar();
   renderTodoItems();
+  renderTagContextMenu();
+  renderOpenFileTabs();
 }
 
 function showWelcome() {
@@ -3715,7 +4355,21 @@ function showTodoView() {
   todoSidebar.hidden = isSoloWindow ? true : false;
   if (tagsSidebar) tagsSidebar.hidden = true;
   renderTodoFilesSidebar();
+  if (isDraftTodoActive()) {
+    showDraftTodoPage({
+      preserveOpenTabs: true,
+      tabIndex: activeTodoTabIndex,
+    });
+    return;
+  }
   renderTodoItems();
+  if (selectedRightTodoFileId) {
+    todoShell?.classList.add("split");
+    if (rightTodoColumn) rightTodoColumn.hidden = false;
+    renderRightTodoItems();
+  } else {
+    closeRightTodoPane();
+  }
   railButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.view === "todo");
   });
@@ -3896,6 +4550,7 @@ async function promoteDraftNoteToFile(title, content) {
 
 function resetTodoSelection() {
   selectedTodoFileId = null;
+  clearDraftTodoState();
   syncPrimarySelection("todo", null);
   persistSelectedTodoFileId(null);
   if (todoInput) todoInput.value = "";
@@ -3936,6 +4591,61 @@ function focusCanvasTitle() {
     canvas.focus();
     selectTitleText();
   });
+}
+
+function focusCanvasBodyStart() {
+  if (!canvas) return;
+
+  requestAnimationFrame(() => {
+    const selection = window.getSelection();
+    const textNode = canvas.firstChild;
+
+    if (!selection) {
+      canvas.focus();
+      return;
+    }
+
+    const bodyBreak = canvas.querySelector("br[data-body-start='true']");
+    if (bodyBreak) {
+      const range = document.createRange();
+      range.setStartAfter(bodyBreak);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      canvas.focus();
+      updateTypingCaret(canvas);
+      return;
+    }
+
+    if (!textNode) {
+      canvas.focus();
+      return;
+    }
+
+    const text = textNode.textContent || "";
+    const firstLineLength = text.split("\n")[0]?.length || 0;
+    const bodyStart = Math.min(firstLineLength + 1, text.length);
+    const range = document.createRange();
+    range.setStart(textNode, bodyStart);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    canvas.focus();
+    updateTypingCaret(canvas);
+  });
+}
+
+function setCanvasEditorText(editor, text, { bodyStartLine = false } = {}) {
+  if (!editor) return;
+
+  editor.innerHTML = "";
+  editor.append(document.createTextNode(text));
+
+  if (bodyStartLine) {
+    const bodyBreak = document.createElement("br");
+    bodyBreak.dataset.bodyStart = "true";
+    editor.append(bodyBreak);
+  }
 }
 
 function selectElementText(element) {
@@ -3984,12 +4694,16 @@ function selectNote(
   selectedNoteId = note.id;
   syncPrimarySelection("note", note.id);
   const initialContent = buildEditorContent(note.title, note.content);
+  const hasBodyContent = Boolean(note.content?.trim());
+  const editorContent = hasBodyContent ? initialContent : `${initialContent}\n`;
   if (canvas) {
     canvas.hidden = false;
-    canvas.innerText = initialContent;
+    setCanvasEditorText(canvas, initialContent, {
+      bodyStartLine: !hasBodyContent,
+    });
     canvas.style.display = "block";
   }
-  lastCanvasText = initialContent;
+  lastCanvasText = editorContent;
   if (deleteButton) deleteButton.disabled = false;
   if (renameButton) renameButton.disabled = false;
   if (moveNoteButton) moveNoteButton.disabled = false;
@@ -3998,7 +4712,7 @@ function selectNote(
     showEditor();
     if (canvas) {
       canvas.scrollTop = 0;
-      canvas.focus();
+      focusCanvasBodyStart();
     }
   });
   renderNotes("");
@@ -4015,6 +4729,9 @@ function applyEditorTextToNote(editorText, noteId) {
   const nextNote = syncNoteTitleAndContent(note, editorText);
   notes = notes.map((item) => (item.id === noteId ? nextNote : item));
   renderNotes("");
+  if (nextNote.title !== note.title) {
+    renderOpenFileTabs();
+  }
   return nextNote;
 }
 
@@ -4090,12 +4807,36 @@ async function renameSelected() {
   );
 }
 
-async function deleteSelectedNote() {
-  if (!selectedNoteId) return;
-  if (!confirm("Delete the selected file?")) return;
-  notes = deleteNote(notes, selectedNoteId);
+async function deleteSelectedNote(target = null) {
+  const idsToDelete = getSelectedFileIdsForAction("note", target);
+  if (idsToDelete.length === 0) return;
+
+  const confirmedIds = await confirmFileDeletes(
+    idsToDelete
+      .map((id) => notes.find((note) => note.id === id))
+      .filter(Boolean),
+    {
+      title: "Delete note",
+      message: (note) => `Delete "${note.title}"?`,
+    },
+  );
+  if (confirmedIds.length === 0) return;
+
+  const deleteIdSet = new Set(confirmedIds);
+  notes = notes.filter((note) => !deleteIdSet.has(note.id));
   notes = await persistNotes(notes);
-  resetSelection();
+  openNoteIds = openNoteIds.filter((id) => !deleteIdSet.has(id));
+  selectedNoteIds = new Set();
+  if (deleteIdSet.has(selectedRightNoteId)) {
+    selectedRightNoteId = null;
+    if (rightCanvas) rightCanvas.innerText = "";
+    if (rightCanvasTitle) rightCanvasTitle.textContent = "";
+  }
+  if (deleteIdSet.has(selectedNoteId)) {
+    resetSelection();
+  } else {
+    renderOpenFileTabs();
+  }
   renderNotes();
 }
 
@@ -4122,6 +4863,21 @@ deleteTodoFileButton?.addEventListener("click", () => {
 });
 addTodoButton?.addEventListener("click", () => {
   void addTodo();
+});
+addRightTodoButton?.addEventListener("click", () => {
+  const value = rightTodoInput?.value.trim();
+  if (!value || !selectedRightTodoFileId) return;
+  void addTodoToFile(selectedRightTodoFileId, value).then(() => {
+    if (rightTodoInput) rightTodoInput.value = "";
+  });
+});
+rightTodoInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addRightTodoButton?.click();
+});
+closeRightTodoPaneButton?.addEventListener("click", () => {
+  closeRightTodoPane();
 });
 
 function handleContextMenuClick(event) {
@@ -4176,10 +4932,10 @@ function handleContextMenuClick(event) {
 
     if (type === "note") {
       if (action === "rename") void renameSelected();
-      if (action === "delete") void deleteSelectedNote();
+      if (action === "delete") void deleteSelectedNote(fileMenuTarget);
     } else {
       if (action === "rename") void renameTodoFile();
-      if (action === "delete") void deleteTodoFile();
+      if (action === "delete") void deleteTodoFile(fileMenuTarget);
     }
     return;
   }
@@ -4246,6 +5002,10 @@ document.addEventListener("click", (event) => {
     hideContextMenu();
     hideTodoItemContextMenu();
   }
+
+  if (!shouldKeepSidebarSelection(event)) {
+    clearSidebarSelections();
+  }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
@@ -4260,12 +5020,24 @@ todoInput?.addEventListener("keydown", (event) => {
   }
 });
 todoViewTitle?.addEventListener("input", () => {
+  if (isDraftTodoActive()) {
+    draftTodoTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
+    void promoteDraftTodoToFile(draftTodoTitle);
+    return;
+  }
+
   updateSelectedTodoTitle(todoViewTitle.innerText);
+  renderOpenFileTabs();
   void saveTodoTitleDebounced();
 });
 todoViewTitle?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
+    if (isDraftTodoActive()) {
+      const safeTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
+      draftTodoTitle = safeTitle;
+      void promoteDraftTodoToFile(safeTitle);
+    }
     todoViewTitle.blur();
   }
 });
@@ -4275,7 +5047,15 @@ todoViewTitle?.addEventListener("blur", () => {
     return;
   }
   const selectedFile = getSelectedTodoFile();
-  if (!selectedFile) return;
+  if (!selectedFile) {
+    if (isDraftTodoActive()) {
+      const safeTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
+      todoViewTitle.textContent = safeTitle;
+      draftTodoTitle = safeTitle;
+      void promoteDraftTodoToFile(safeTitle);
+    }
+    return;
+  }
 
   const safeTitle = normalizeTodoTitle(todoViewTitle.innerText) || "United";
   if (
@@ -4496,6 +5276,217 @@ function updateSidebarToggleButtonState() {
   );
 }
 
+function getEditorTypingCaret(editor) {
+  if (!editor) return null;
+
+  const existingState = typingCaretState.get(editor);
+  if (existingState) return existingState;
+
+  const shell = editor.closest(".page-shell");
+  if (!shell) return null;
+
+  const caret = document.createElement("span");
+  caret.className = "typing-caret";
+  caret.setAttribute("aria-hidden", "true");
+  shell.append(caret);
+
+  const state = {
+    caret,
+    frame: 0,
+    visible: false,
+  };
+  typingCaretState.set(editor, state);
+  return state;
+}
+
+function isSelectionInsideEditor(editor, selection) {
+  if (!editor || !selection || selection.rangeCount === 0) return false;
+
+  const { anchorNode, focusNode } = selection;
+  return editor.contains(anchorNode) && editor.contains(focusNode);
+}
+
+function getMarkerCaretRect(range) {
+  const selection = window.getSelection();
+  const restoreRange =
+    selection && selection.rangeCount > 0
+      ? selection.getRangeAt(0).cloneRange()
+      : null;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  marker.style.display = "inline-block";
+  marker.style.width = "0";
+  marker.style.overflow = "hidden";
+  marker.style.pointerEvents = "none";
+
+  range.insertNode(marker);
+  const rect = marker.getBoundingClientRect();
+  const parent = marker.parentNode;
+  parent?.removeChild(marker);
+  if (selection && restoreRange) {
+    selection.removeAllRanges();
+    selection.addRange(restoreRange);
+  }
+  return rect;
+}
+
+function getLineStartCaretRect(editor, range) {
+  const editorRect = editor.getBoundingClientRect();
+  const styles = getComputedStyle(editor);
+  const paddingLeft = parseFloat(styles.paddingLeft || "0");
+  const paddingTop = parseFloat(styles.paddingTop || "0");
+  const lineHeight = parseFloat(styles.lineHeight || "24");
+
+  if (range.startContainer === editor) {
+    const previousNode = editor.childNodes[range.startOffset - 1];
+    if (previousNode?.nodeName === "BR") {
+      const previousTextRange = document.createRange();
+      const previousTextNode = previousNode.previousSibling;
+      if (previousTextNode?.nodeType === Node.TEXT_NODE) {
+        const textLength = previousTextNode.textContent?.length || 0;
+        previousTextRange.setStart(previousTextNode, 0);
+        previousTextRange.setEnd(previousTextNode, textLength);
+      } else {
+        previousTextRange.setStartBefore(previousNode);
+        previousTextRange.setEndBefore(previousNode);
+      }
+
+      const previousLineRect = Array.from(
+        previousTextRange.getClientRects(),
+      ).at(-1);
+
+      return {
+        left: editorRect.left + paddingLeft,
+        top: previousLineRect
+          ? previousLineRect.top + previousLineRect.height
+          : editorRect.top + paddingTop + lineHeight,
+        height: lineHeight,
+      };
+    }
+  }
+
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+
+  const textNode = range.startContainer;
+  const text = textNode.textContent || "";
+  const offset = range.startOffset;
+  if (text[offset - 1] !== "\n") return null;
+
+  const previousLineStart = text.lastIndexOf("\n", offset - 2) + 1;
+  const previousLineRange = document.createRange();
+  previousLineRange.setStart(textNode, previousLineStart);
+  previousLineRange.setEnd(textNode, Math.max(previousLineStart, offset - 1));
+
+  const previousLineRects = Array.from(previousLineRange.getClientRects());
+  const previousLineRect = previousLineRects.at(-1);
+
+  return {
+    left: editorRect.left + paddingLeft,
+    top: previousLineRect
+      ? previousLineRect.top + previousLineRect.height
+      : editorRect.top + paddingTop + lineHeight,
+    height: lineHeight,
+  };
+}
+
+function getCollapsedCaretRect(editor, range) {
+  const editorRect = editor.getBoundingClientRect();
+  const lineStartRect = getLineStartCaretRect(editor, range);
+  if (lineStartRect) return lineStartRect;
+
+  const lineRects = Array.from(range.getClientRects());
+  const lineRect = lineRects.at(-1);
+  if (lineRect?.height) return lineRect;
+
+  const rect = range.getBoundingClientRect();
+  if (rect.height) return rect;
+
+  const markerRect = getMarkerCaretRect(range.cloneRange());
+  if (markerRect.height) return markerRect;
+
+  const styles = getComputedStyle(editor);
+  return {
+    left: editorRect.left + parseFloat(styles.paddingLeft || "0"),
+    top: editorRect.top + parseFloat(styles.paddingTop || "0"),
+    height: parseFloat(styles.lineHeight || "24"),
+  };
+}
+
+function updateTypingCaret(editor) {
+  const state = getEditorTypingCaret(editor);
+  if (!state) return;
+
+  cancelAnimationFrame(state.frame);
+  state.frame = requestAnimationFrame(() => {
+    const selection = window.getSelection();
+    const isActiveEditor = document.activeElement === editor;
+    const canShow =
+      isActiveEditor &&
+      isSelectionInsideEditor(editor, selection) &&
+      selection.isCollapsed;
+
+    editor.classList.toggle("typing-caret-active", canShow);
+    state.caret.classList.toggle("visible", canShow);
+
+    if (!canShow) {
+      state.visible = false;
+      return;
+    }
+
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+
+    const shell = editor.closest(".page-shell");
+    if (!shell) return;
+
+    const shellRect = shell.getBoundingClientRect();
+    const rect = getCollapsedCaretRect(editor, range);
+    const height = Math.max(18, rect.height || 24);
+    const x = rect.left - shellRect.left;
+    const y = rect.top - shellRect.top;
+
+    state.caret.style.height = `${height}px`;
+    state.caret.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+
+    if (!state.visible) {
+      state.caret.classList.add("settled");
+      state.visible = true;
+      requestAnimationFrame(() => state.caret.classList.remove("settled"));
+    }
+  });
+}
+
+function pulseTypingEditor(editor) {
+  if (!editor) return;
+
+  editor.classList.remove("typing-pop");
+  void editor.offsetWidth;
+  editor.classList.add("typing-pop");
+}
+
+function bindTypingAnimation(editor) {
+  if (!editor) return;
+
+  getEditorTypingCaret(editor);
+  editor.addEventListener("focus", () => updateTypingCaret(editor));
+  editor.addEventListener("blur", () => updateTypingCaret(editor));
+  editor.addEventListener("keyup", () => updateTypingCaret(editor));
+  editor.addEventListener("mouseup", () => updateTypingCaret(editor));
+  editor.addEventListener("scroll", () => updateTypingCaret(editor));
+  editor.addEventListener("input", () => {
+    pulseTypingEditor(editor);
+    updateTypingCaret(editor);
+  });
+}
+
+bindTypingAnimation(canvas);
+bindTypingAnimation(rightCanvas);
+
+document.addEventListener("selectionchange", () => {
+  updateTypingCaret(canvas);
+  updateTypingCaret(rightCanvas);
+});
+
 updateSidebarToggleButtonState();
 
 toggleSidebarButton?.addEventListener("click", () => {
@@ -4582,11 +5573,15 @@ async function initApp() {
   const diskNotes = await loadNotesFromDisk();
   notes = await migrateLegacyNotesIfNeeded(diskNotes);
   todoFiles = await loadTodoFilesFromDisk();
-  ensureTodoFilesDefaultTagCategories();
+  await ensureTodoFilesDefaultTagCategories();
 
   if (todoFiles.length === 0) {
     const defaultTodoFile = createTodoDocument("United");
-    tagCategoriesByFile[defaultTodoFile.id] = createDefaultTodoTagCategories();
+    const defaultCategories = createDefaultTodoTagCategories();
+    defaultTodoFile.categories = cloneTagCategories(defaultCategories);
+    tagCategoriesByFile[defaultTodoFile.id] = cloneTagCategories(
+      defaultCategories,
+    );
     persistTagSettingsByFile();
     todoFiles = await persistTodoFiles([defaultTodoFile]);
   }
@@ -4603,6 +5598,7 @@ async function initApp() {
   selectedTodoFileId = restoredTodoFileId ?? null;
   selectedTagTodoFileId = restoredTodoFileId ?? null;
   syncPrimarySelection("todo", selectedTodoFileId);
+  renderTagContextMenu();
   const launchParams = launchQuery;
   const launchView = launchParams.get("view");
   const launchId = launchParams.get("id");
@@ -4683,6 +5679,125 @@ function showTextPrompt(title, label, defaultValue, callback) {
   setTimeout(() => dialogTextInput.focus(), 50);
 }
 
+let currentConfirmResolver = null;
+
+function readDeleteConfirmationDisabled() {
+  try {
+    return (
+      window?.localStorage?.getItem(DELETE_CONFIRMATION_DISABLED_KEY) === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function persistDeleteConfirmationDisabled(disabled) {
+  try {
+    if (disabled) {
+      window?.localStorage?.setItem(DELETE_CONFIRMATION_DISABLED_KEY, "true");
+    } else {
+      window?.localStorage?.removeItem(DELETE_CONFIRMATION_DISABLED_KEY);
+    }
+  } catch {
+    // Ignore storage errors; the current delete flow still works.
+  }
+}
+
+function closeConfirmPrompt(accepted) {
+  if (!confirmActionDialog) return;
+
+  if (confirmActionDialog.open) confirmActionDialog.close();
+  if (currentConfirmResolver) {
+    currentConfirmResolver({
+      accepted,
+      dontAskAgain: Boolean(accepted && confirmActionDontAsk?.checked),
+    });
+    currentConfirmResolver = null;
+  }
+}
+
+function showConfirmPrompt({
+  title = "Confirm action",
+  message,
+  confirmLabel = "Continue",
+  allowDontAskAgain = false,
+} = {}) {
+  if (
+    !confirmActionDialog ||
+    !confirmActionMessage ||
+    !confirmActionButton
+  ) {
+    return Promise.resolve({
+      accepted: confirm(message || title),
+      dontAskAgain: false,
+    });
+  }
+
+  if (currentConfirmResolver) closeConfirmPrompt(false);
+
+  if (confirmActionTitle) confirmActionTitle.textContent = title;
+  confirmActionMessage.textContent = message || "";
+  confirmActionButton.textContent = confirmLabel;
+  if (confirmActionDontAsk) {
+    confirmActionDontAsk.checked = false;
+    const checkboxLabel = confirmActionDontAsk.closest("label");
+    if (checkboxLabel) checkboxLabel.hidden = !allowDontAskAgain;
+  }
+
+  return new Promise((resolve) => {
+    currentConfirmResolver = resolve;
+    confirmActionDialog.showModal();
+    setTimeout(() => confirmActionButton.focus(), 50);
+  });
+}
+
+async function confirmDeleteAction({ title, message }) {
+  if (readDeleteConfirmationDisabled()) return true;
+
+  const result = await showConfirmPrompt({
+    title,
+    message,
+    confirmLabel: "Delete",
+    allowDontAskAgain: true,
+  });
+
+  if (result.accepted && result.dontAskAgain) {
+    persistDeleteConfirmationDisabled(true);
+  }
+
+  return result.accepted;
+}
+
+async function confirmFileDeletes(files, { title, message }) {
+  if (readDeleteConfirmationDisabled()) {
+    return files.map((file) => file.id);
+  }
+
+  const confirmedIds = [];
+  let disableFutureConfirmations = false;
+
+  for (const file of files) {
+    const result = await showConfirmPrompt({
+      title,
+      message: message(file),
+      confirmLabel: "Delete",
+      allowDontAskAgain: true,
+    });
+
+    if (result.accepted) {
+      confirmedIds.push(file.id);
+      disableFutureConfirmations =
+        disableFutureConfirmations || result.dontAskAgain;
+    }
+  }
+
+  if (disableFutureConfirmations) {
+    persistDeleteConfirmationDisabled(true);
+  }
+
+  return confirmedIds;
+}
+
 folderInputForm?.addEventListener("submit", (e) => {
   e.preventDefault();
   const value = dialogTextInput.value.trim();
@@ -4696,6 +5811,19 @@ folderInputForm?.addEventListener("submit", (e) => {
 cancelInputBtn?.addEventListener("click", () => {
   folderInputDialog.close();
   currentPromptCallback = null;
+});
+
+confirmActionButton?.addEventListener("click", () => {
+  closeConfirmPrompt(true);
+});
+
+cancelConfirmActionButton?.addEventListener("click", () => {
+  closeConfirmPrompt(false);
+});
+
+confirmActionDialog?.addEventListener("cancel", (e) => {
+  e.preventDefault();
+  closeConfirmPrompt(false);
 });
 
 let deleteFolderCallback = null;
