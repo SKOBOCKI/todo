@@ -13,6 +13,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openInNewWindow: (view, id) =>
     ipcRenderer.invoke("window:open-solo", view, id),
   getDataVersion: () => ipcRenderer.invoke("data:get-version"),
+  getZoomState: () => ipcRenderer.invoke("zoom:get"),
+  zoomIn: () => ipcRenderer.invoke("zoom:change", 1),
+  zoomOut: () => ipcRenderer.invoke("zoom:change", -1),
+  resetZoom: () => ipcRenderer.invoke("zoom:reset"),
+  onZoomChanged: (callback) => {
+    if (typeof callback !== "function") return () => {};
+
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("zoom:changed", listener);
+    return () => ipcRenderer.removeListener("zoom:changed", listener);
+  },
   onDataChanged: (callback) => {
     if (typeof callback !== "function") return () => {};
 

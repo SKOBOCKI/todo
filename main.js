@@ -385,6 +385,80 @@ async function saveTodoFilesToDisk(todoFiles) {
   return savedTodoFiles;
 }
 
+const ZOOM_PERCENT_STEPS = [
+  30, 50, 67, 80, 90, 100, 110, 120, 133, 150, 170, 200, 240, 300,
+];
+
+function getZoomPercent(level) {
+  return Math.round(Math.pow(1.2, level) * 100);
+}
+
+function getZoomLevelForPercent(percent) {
+  return Math.log(percent / 100) / Math.log(1.2);
+}
+
+function getClosestZoomStepIndex(percent) {
+  return ZOOM_PERCENT_STEPS.reduce((closestIndex, stepPercent, index) => {
+    const closestPercent = ZOOM_PERCENT_STEPS[closestIndex];
+    return Math.abs(stepPercent - percent) < Math.abs(closestPercent - percent)
+      ? index
+      : closestIndex;
+  }, 0);
+}
+
+function getNextZoomPercent(currentPercent, step) {
+  const currentIndex = getClosestZoomStepIndex(currentPercent);
+  const nextIndex = Math.min(
+    ZOOM_PERCENT_STEPS.length - 1,
+    Math.max(0, currentIndex + step),
+  );
+  return ZOOM_PERCENT_STEPS[nextIndex];
+}
+
+function getWindowZoomState(win) {
+  const level = win?.webContents?.getZoomLevel?.() ?? 0;
+  return {
+    level,
+    percent: getZoomPercent(level),
+  };
+}
+
+function createZoomStateFromPercent(percent) {
+  const level = getZoomLevelForPercent(percent);
+  return {
+    level,
+    percent,
+  };
+}
+
+function sendWindowZoomState(win) {
+  if (!win || win.webContents.isDestroyed()) return;
+  win.webContents.send("zoom:changed", getWindowZoomState(win));
+}
+
+function changeWindowZoom(win, step) {
+  const currentLevel = win.webContents.getZoomLevel();
+  const nextPercent = getNextZoomPercent(getZoomPercent(currentLevel), step);
+  const state = createZoomStateFromPercent(nextPercent);
+  win.webContents.setZoomLevel(state.level);
+  win.webContents.send("zoom:changed", state);
+  return state;
+}
+
+function resetWindowZoom(win) {
+  const state = createZoomStateFromPercent(100);
+  win.webContents.setZoomLevel(0);
+  win.webContents.send("zoom:changed", state);
+  return state;
+}
+
+function attachBrowserZoomControls(win) {
+  win.webContents.on("zoom-changed", (event, zoomDirection) => {
+    event.preventDefault();
+    changeWindowZoom(win, zoomDirection === "in" ? 1 : -1);
+  });
+}
+
 function createWindow(options = {}) {
   const { isSolo = false, launchView = null, launchId = null } = options;
   const display = screen.getPrimaryDisplay().workAreaSize;
@@ -407,9 +481,15 @@ function createWindow(options = {}) {
     },
   });
 
+  attachBrowserZoomControls(win);
+
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
+  });
+
+  win.webContents.once("did-finish-load", () => {
+    sendWindowZoomState(win);
   });
 
   win.loadURL(buildWindowUrl({ isSolo, view: launchView, id: launchId }));
@@ -460,6 +540,20 @@ app.whenReady().then(() => {
     return savedTodoFiles;
   });
   ipcMain.handle("data:get-version", () => ({ ...dataVersions }));
+  ipcMain.handle("zoom:get", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return getWindowZoomState(win);
+  });
+  ipcMain.handle("zoom:change", (event, step) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return createZoomStateFromPercent(100);
+    return changeWindowZoom(win, Number(step) || 0);
+  });
+  ipcMain.handle("zoom:reset", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return createZoomStateFromPercent(100);
+    return resetWindowZoom(win);
+  });
   ipcMain.handle("file:get-path", (_event, type, file) =>
     getFilePath(type, file),
   );

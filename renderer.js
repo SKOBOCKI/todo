@@ -66,6 +66,9 @@ const rightCanvas = document.querySelector("#canvas-right");
 const rightCanvasTitle = document.querySelector("#right-canvas-title");
 const closeRightPaneButton = document.querySelector("#close-right-pane");
 const appShell = document.querySelector(".app-shell");
+const zoomOutButton = document.querySelector("#zoom-out");
+const zoomResetButton = document.querySelector("#zoom-reset");
+const zoomInButton = document.querySelector("#zoom-in");
 const contextMenu = document.querySelector("#file-context-menu");
 const todoItemContextMenu = document.querySelector("#todo-item-context-menu");
 const addTagCategoryButton = document.querySelector("#add-tag-category");
@@ -78,6 +81,8 @@ const isSoloWindow = launchQuery.get("solo") === "1";
 if (isSoloWindow) {
   appShell?.classList.add("solo-window");
 }
+document.documentElement.style.zoom = "";
+window.localStorage?.removeItem("loop-notes-zoom-percent");
 
 let notes = [];
 let selectedNoteId = null;
@@ -5276,6 +5281,51 @@ function updateSidebarToggleButtonState() {
   );
 }
 
+function normalizeZoomPercent(state) {
+  const percent = Number(state?.percent);
+  return Number.isFinite(percent) && percent > 0 ? Math.round(percent) : 100;
+}
+
+function renderZoomState(state) {
+  if (!zoomResetButton) return;
+
+  const percent = normalizeZoomPercent(state);
+  zoomResetButton.textContent = `${percent}%`;
+  zoomResetButton.title =
+    percent === 100 ? "Zoom is 100%" : "Reset zoom to 100%";
+  zoomResetButton.setAttribute(
+    "aria-label",
+    percent === 100 ? "Zoom is 100%" : "Reset zoom to 100%",
+  );
+}
+
+async function refreshZoomState() {
+  if (typeof electronAPI.getZoomState !== "function") {
+    renderZoomState({ percent: 100 });
+    return;
+  }
+
+  try {
+    renderZoomState(await electronAPI.getZoomState());
+  } catch {
+    renderZoomState({ percent: 100 });
+  }
+}
+
+async function applyZoomAction(action) {
+  const zoomAction = electronAPI[action];
+  if (typeof zoomAction !== "function") {
+    renderZoomState({ percent: 100 });
+    return;
+  }
+
+  try {
+    renderZoomState(await zoomAction());
+  } catch {
+    await refreshZoomState();
+  }
+}
+
 function getEditorTypingCaret(editor) {
   if (!editor) return null;
 
@@ -5494,8 +5544,46 @@ toggleSidebarButton?.addEventListener("click", () => {
   updateSidebarToggleButtonState();
 });
 
+zoomOutButton?.addEventListener("click", () => {
+  void applyZoomAction("zoomOut");
+});
+
+zoomResetButton?.addEventListener("click", () => {
+  void applyZoomAction("resetZoom");
+});
+
+zoomInButton?.addEventListener("click", () => {
+  void applyZoomAction("zoomIn");
+});
+
+electronAPI.onZoomChanged?.((state) => {
+  renderZoomState(state);
+});
+
+void refreshZoomState();
+
 document.addEventListener("keydown", (event) => {
-  if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+  if (!event.ctrlKey || event.altKey || event.metaKey) return;
+
+  if (event.key === "+" || event.key === "=") {
+    event.preventDefault();
+    void applyZoomAction("zoomIn");
+    return;
+  }
+
+  if (event.key === "-" || event.key === "_") {
+    event.preventDefault();
+    void applyZoomAction("zoomOut");
+    return;
+  }
+
+  if (event.key === "0") {
+    event.preventDefault();
+    void applyZoomAction("resetZoom");
+    return;
+  }
+
+  if (event.shiftKey) return;
 
   if (event.key.toLowerCase() === "n") {
     event.preventDefault();
