@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Loop
+Comment=Launch Loop application
+Exec=bash -c 'cd "$HOME/to-do" && bash "./launch-app.sh"'
+Icon=/home/skobocki/to-do/Icos/to-do-line.svg
+Terminal=false
+Categories=Utility;
+

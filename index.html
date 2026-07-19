@@ -78,6 +78,14 @@
           <button
             class="rail-button"
             type="button"
+            title="Calendar"
+            data-view="calendar"
+          >
+            <span class="icon calendar-icon"></span>
+          </button>
+          <button
+            class="rail-button"
+            type="button"
             title="Tags"
             data-view="tags"
           >
@@ -329,6 +337,42 @@
             </div>
           </section>
 
+          <section class="calendar-view" id="calendar-view" hidden>
+            <div class="calendar-shell">
+              <div class="calendar-header-row">
+                <div>
+                  <p class="eyebrow">Calendar</p>
+                  <h1>Loop Calendar</h1>
+                </div>
+                <div class="calendar-header-actions">
+                  <button
+                    id="calendar-prev-month"
+                    class="round-button"
+                    type="button"
+                    title="Previous month"
+                    aria-label="Previous month"
+                  >
+                    ‹
+                  </button>
+                  <div id="calendar-month-label" class="calendar-month-label">
+                    Month
+                  </div>
+                  <button
+                    id="calendar-next-month"
+                    class="round-button"
+                    type="button"
+                    title="Next month"
+                    aria-label="Next month"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
+              <div id="calendar-grid" class="calendar-grid"></div>
+              <div id="calendar-tasks" class="calendar-tasks"></div>
+            </div>
+          </section>
+
           <section class="tag-settings-view" id="tag-settings-view" hidden>
             <div class="tag-settings-shell">
               <div class="tag-settings-header">
@@ -574,6 +618,9 @@
       </button>
       <button class="context-menu-item" data-action="move" role="menuitem">
         Move file to...
+      </button>
+      <button class="context-menu-item" data-action="sync-calendar" role="menuitem">
+        Sync with calendar
       </button>
       <button class="context-menu-item" data-action="copy-path" role="menuitem">
         Copy path

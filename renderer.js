@@ -26,6 +26,12 @@ const welcome = document.querySelector("#welcome");
 const editorView = document.querySelector("#editor-view");
 const todoView = document.querySelector("#todo-view");
 const tagSettingsView = document.querySelector("#tag-settings-view");
+const calendarView = document.querySelector("#calendar-view");
+const calendarMonthLabel = document.querySelector("#calendar-month-label");
+const calendarGrid = document.querySelector("#calendar-grid");
+const calendarTasks = document.querySelector("#calendar-tasks");
+const prevCalendarMonthButton = document.querySelector("#calendar-prev-month");
+const nextCalendarMonthButton = document.querySelector("#calendar-next-month");
 const notesSidebar = document.querySelector("#notes-sidebar");
 const todoSidebar = document.querySelector("#todo-sidebar");
 const tagsSidebar = document.querySelector("#tags-sidebar");
@@ -96,6 +102,9 @@ let selectedRightTodoFileId = null;
 let selectedTodoFileIds = new Set();
 let selectedTodoFolderNames = new Set();
 let activeView = "notes";
+let calendarDate = new Date();
+let selectedCalendarDate = new Date();
+let syncedCalendarTodoFileIds = new Set();
 let lastCanvasText = "";
 let contextMenuTarget = null; // { type: 'note'|'todo', id: string }
 let openNoteIds = [];
@@ -776,6 +785,16 @@ function createDueOptionButton(value) {
   return button;
 }
 
+function createDueDatePickerButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "context-menu-item due-date-option";
+  button.dataset.action = "pick-date";
+  button.setAttribute("role", "menuitem");
+  button.textContent = "Choose exact date…";
+  return button;
+}
+
 function renderPriorityContextMenu() {
   if (!prioritySubmenu) return;
 
@@ -806,6 +825,7 @@ function renderDueContextMenu() {
   dueCategoryOptions.forEach((option) => {
     dueSubmenu.appendChild(createDueOptionButton(option));
   });
+  dueSubmenu.appendChild(createDueDatePickerButton());
 
   const separator = document.createElement("div");
   separator.className = "context-menu-separator";
@@ -1784,6 +1804,12 @@ function showContextMenu(event, target) {
   contextMenuTarget = target;
 
   hideTodoItemContextMenu();
+  const syncButton = contextMenu.querySelector(
+    ".context-menu-item[data-action='sync-calendar']",
+  );
+  if (syncButton) {
+    syncButton.hidden = target?.type !== "todo";
+  }
   contextMenu.hidden = false;
   const menuRect = contextMenu.getBoundingClientRect();
   const { left, top } = getPopupPosition(event, menuRect);
@@ -2426,6 +2452,64 @@ function formatDate(isoString) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatTodoDueTimeLabel(value) {
+  const dateString = String(value ?? "").trim();
+  if (!dateString) return "";
+
+  const normalized = dateString.toLowerCase();
+  if (normalized === "today") return "Today";
+  if (normalized === "tomorrow") return "Tomorrow";
+  if (normalized.includes("week")) return dateString;
+
+  const parsed = parseDueDateString(dateString);
+  if (parsed) {
+    return parsed.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  return dateString;
+}
+
+function formatDateForInput(value) {
+  const date = value instanceof Date ? value : parseDueDateString(String(value));
+  if (!date) return "";
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDueDateString(value) {
+  if (!value || typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const lower = normalized.toLowerCase();
+  if (lower === "today") {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  if (lower === "tomorrow") {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const [year, month, day] = normalized.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return null;
 }
 
 function debounce(fn, ms = 250) {
@@ -3597,7 +3681,7 @@ function renderTodoItems() {
       ? (() => {
           const badge = document.createElement("span");
           badge.className = "todo-due-badge";
-          badge.textContent = item.dueTime;
+          badge.textContent = formatTodoDueTimeLabel(item.dueTime);
           badge.title = "Click to remove due time";
           badge.style.cursor = "pointer";
           badge.addEventListener("click", (event) => {
@@ -3729,7 +3813,7 @@ function createTodoListItemElement(item, fileId, { compact = false } = {}) {
   if (item.dueTime) {
     const badge = document.createElement("span");
     badge.className = "todo-due-badge";
-    badge.textContent = item.dueTime;
+    badge.textContent = formatTodoDueTimeLabel(item.dueTime);
     todoItem.appendChild(badge);
   }
 
@@ -3896,6 +3980,7 @@ async function toggleTodoInFile(fileId, todoId) {
   renderTodoItems();
   renderTodoFilesSidebar();
   renderRightTodoItems();
+  if (activeView === "calendar") renderCalendar();
 }
 
 async function updateTodoPriority(todoId, priority) {
@@ -3955,7 +4040,52 @@ async function updateTodoDueTime(todoId, dueTime) {
     ),
   );
   renderTodoItems();
+  renderRightTodoItems();
   renderTodoFilesSidebar();
+  if (activeView === "calendar") {
+    renderCalendar();
+  }
+}
+
+function assignTodoItemToDate(todoId, date) {
+  if (!date) return;
+  const dateString = formatDateForInput(date);
+  return updateTodoDueTime(todoId, dateString);
+}
+
+function promptTodoDueDate(todoId) {
+  if (!todoId || !document.body) return;
+
+  const item = findSelectedTodoItem(todoId);
+  const input = document.createElement("input");
+  input.type = "date";
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  input.style.opacity = "0";
+  input.style.pointerEvents = "none";
+  input.autocomplete = "off";
+
+  const dueDate = item ? parseTodoItemDueDate(item) : null;
+  if (dueDate) {
+    input.value = dueDate.toISOString().slice(0, 10);
+  }
+
+  function cleanup() {
+    if (input.parentElement) {
+      input.parentElement.removeChild(input);
+    }
+  }
+
+  input.addEventListener("change", () => {
+    if (input.value) {
+      void updateTodoDueTime(todoId, input.value);
+    }
+    cleanup();
+  });
+  input.addEventListener("blur", cleanup);
+
+  document.body.appendChild(input);
+  window.setTimeout(() => input.click(), 0);
 }
 
 async function removeTodoBadge(todoId, type, value = null) {
@@ -3996,6 +4126,9 @@ async function removeTodoBadge(todoId, type, value = null) {
   );
   renderTodoItems();
   renderTodoFilesSidebar();
+  if (activeView === "calendar") {
+    renderCalendar();
+  }
 }
 
 async function deleteTodo(todoId) {
@@ -4314,6 +4447,7 @@ function showWelcome() {
   editorView.hidden = true;
   todoView.hidden = true;
   if (tagSettingsView) tagSettingsView.hidden = true;
+  if (calendarView) calendarView.hidden = true;
   notesSidebar.hidden = false;
   todoSidebar.hidden = true;
   if (tagsSidebar) tagsSidebar.hidden = true;
@@ -4324,6 +4458,7 @@ function showEditor() {
   editorView.hidden = false;
   todoView.hidden = true;
   if (tagSettingsView) tagSettingsView.hidden = true;
+  if (calendarView) calendarView.hidden = true;
   notesSidebar.hidden = isSoloWindow ? true : false;
   todoSidebar.hidden = true;
   if (tagsSidebar) tagsSidebar.hidden = true;
@@ -4356,6 +4491,7 @@ function showTodoView() {
   editorView.hidden = true;
   todoView.hidden = false;
   if (tagSettingsView) tagSettingsView.hidden = true;
+  if (calendarView) calendarView.hidden = true;
   notesSidebar.hidden = true;
   todoSidebar.hidden = isSoloWindow ? true : false;
   if (tagsSidebar) tagsSidebar.hidden = true;
@@ -4389,6 +4525,7 @@ function showTagSettingsView() {
   editorView.hidden = true;
   todoView.hidden = true;
   if (tagSettingsView) tagSettingsView.hidden = false;
+  if (calendarView) calendarView.hidden = true;
   notesSidebar.hidden = true;
   todoSidebar.hidden = true;
   if (tagsSidebar) tagsSidebar.hidden = isSoloWindow ? true : false;
@@ -4400,6 +4537,295 @@ function showTagSettingsView() {
   renderTagsTodoFileList();
   renderTagSettings();
   persistUiState({ activeView: "tags" });
+}
+
+function showCalendarView() {
+  activeView = "calendar";
+  welcome.hidden = true;
+  editorView.hidden = true;
+  todoView.hidden = true;
+  if (tagSettingsView) tagSettingsView.hidden = true;
+  if (calendarView) calendarView.hidden = false;
+  notesSidebar.hidden = true;
+  todoSidebar.hidden = true;
+  if (tagsSidebar) tagsSidebar.hidden = true;
+  railButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === "calendar");
+  });
+  updateRailInk("calendar");
+  renderCalendar();
+  persistUiState({ activeView: "calendar" });
+}
+
+const CALENDAR_SYNCED_FILE_IDS_KEY = "loop-calendar-synced-todo-files";
+
+function readSyncedCalendarTodoFileIds() {
+  try {
+    const raw = window.localStorage.getItem(CALENDAR_SYNCED_FILE_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((id) => typeof id === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function persistSyncedCalendarTodoFileIds() {
+  try {
+    window.localStorage.setItem(
+      CALENDAR_SYNCED_FILE_IDS_KEY,
+      JSON.stringify(Array.from(syncedCalendarTodoFileIds)),
+    );
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function toggleSyncTodoFileWithCalendar(todoFileId) {
+  if (!todoFileId) return;
+  if (syncedCalendarTodoFileIds.has(todoFileId)) {
+    syncedCalendarTodoFileIds.delete(todoFileId);
+  } else {
+    syncedCalendarTodoFileIds.add(todoFileId);
+  }
+  persistSyncedCalendarTodoFileIds();
+  if (activeView === "calendar") renderCalendar();
+}
+
+function parseTodoItemDueDate(item) {
+  if (!item || !item.dueTime) return null;
+  return parseDueDateString(String(item.dueTime).trim());
+}
+
+function getCalendarTasks() {
+  const tasks = [];
+  for (const todoFile of todoFiles) {
+    if (!syncedCalendarTodoFileIds.has(todoFile.id)) continue;
+    for (const item of todoFile.items ?? []) {
+      tasks.push({
+        ...item,
+        fileId: todoFile.id,
+        fileTitle: todoFile.title,
+        dueDate: parseTodoItemDueDate(item),
+      });
+    }
+  }
+  return tasks;
+}
+
+function isSameDate(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function getTasksForDate(date) {
+  return getCalendarTasks().filter(
+    (task) => task.dueDate && isSameDate(task.dueDate, date),
+  );
+}
+
+function getUnscheduledTasks() {
+  return getCalendarTasks().filter((task) => !task.dueDate);
+}
+
+function renderCalendar() {
+  if (!calendarGrid || !calendarMonthLabel || !calendarTasks) return;
+
+  const now = new Date(calendarDate.getTime());
+  now.setDate(1);
+  selectedCalendarDate = selectedCalendarDate || new Date();
+
+  calendarMonthLabel.textContent = now.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+
+  const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  calendarGrid.innerHTML = "";
+
+  const headerRow = document.createElement("div");
+  headerRow.className = "calendar-row calendar-weekdays";
+  weekdayLabels.forEach((label) => {
+    const labelCell = document.createElement("div");
+    labelCell.className = "calendar-weekday";
+    labelCell.textContent = label;
+    headerRow.appendChild(labelCell);
+  });
+  calendarGrid.appendChild(headerRow);
+
+  const firstDayOfMonth = now.getDay();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  let row = document.createElement("div");
+  row.className = "calendar-row";
+
+  for (let i = 0; i < firstDayOfMonth; i += 1) {
+    const emptyCell = document.createElement("div");
+    emptyCell.className = "calendar-cell empty";
+    row.appendChild(emptyCell);
+  }
+
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth();
+  const todayDate = today.getDate();
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    if (row.children.length === 7) {
+      calendarGrid.appendChild(row);
+      row = document.createElement("div");
+      row.className = "calendar-row";
+    }
+
+    const cellDate = new Date(now.getFullYear(), now.getMonth(), day);
+    const dayTasks = getTasksForDate(cellDate);
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "calendar-cell";
+    cell.textContent = String(day);
+
+    if (isSameDate(cellDate, selectedCalendarDate)) {
+      cell.classList.add("selected");
+    }
+    if (
+      now.getFullYear() === todayYear &&
+      now.getMonth() === todayMonth &&
+      day === todayDate
+    ) {
+      cell.classList.add("today");
+    }
+    if (dayTasks.length > 0) {
+      const badge = document.createElement("span");
+      badge.className = "calendar-task-badge";
+      badge.textContent = String(dayTasks.length);
+      cell.appendChild(badge);
+    }
+
+    cell.addEventListener("click", () => {
+      selectedCalendarDate = cellDate;
+      renderCalendar();
+    });
+
+    row.appendChild(cell);
+  }
+
+  while (row.children.length < 7) {
+    const emptyCell = document.createElement("div");
+    emptyCell.className = "calendar-cell empty";
+    row.appendChild(emptyCell);
+  }
+
+  calendarGrid.appendChild(row);
+
+  const selectedTasks = getTasksForDate(selectedCalendarDate);
+  const unscheduledTasks = getUnscheduledTasks();
+  calendarTasks.innerHTML = "";
+
+  const sectionHeader = document.createElement("div");
+  sectionHeader.className = "calendar-tasks-header";
+  sectionHeader.innerHTML = `
+    <div>
+      <p class="eyebrow">Tasks</p>
+      <h2>${selectedCalendarDate.toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })}</h2>
+    </div>
+  `;
+  calendarTasks.appendChild(sectionHeader);
+
+  const selectedList = document.createElement("div");
+  selectedList.className = "calendar-task-list";
+  if (selectedTasks.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "calendar-task-empty";
+    empty.textContent = "No tasks due on this date.";
+    selectedList.appendChild(empty);
+  } else {
+    selectedTasks.forEach((task) => {
+      const taskCard = document.createElement("div");
+      taskCard.className = "calendar-task-card";
+      if (task.completed) {
+        taskCard.classList.add("done");
+      }
+
+      const title = document.createElement("div");
+      title.className = "calendar-task-card-title";
+      title.textContent = task.text;
+
+      const meta = document.createElement("div");
+      meta.className = "calendar-task-card-meta";
+      meta.textContent = task.fileTitle;
+
+      const doneButton = document.createElement("button");
+      doneButton.type = "button";
+      doneButton.className = "calendar-task-done-button";
+      doneButton.textContent = task.completed ? "Undo" : "Done";
+      doneButton.addEventListener("click", () => {
+        void toggleTodoInFile(task.fileId, task.id);
+      });
+
+      taskCard.append(title, meta, doneButton);
+      selectedList.appendChild(taskCard);
+    });
+  }
+  calendarTasks.appendChild(selectedList);
+
+  if (unscheduledTasks.length > 0) {
+    const unscheduledSection = document.createElement("div");
+    unscheduledSection.className = "calendar-unscheduled-block";
+    unscheduledSection.innerHTML = `
+      <div class="calendar-unscheduled-header">
+        <p class="eyebrow">Unscheduled tasks</p>
+      </div>
+    `;
+    unscheduledTasks.forEach((task) => {
+      const taskCard = document.createElement("div");
+      taskCard.className = "calendar-task-card calendar-task-card-quiet";
+
+      const title = document.createElement("div");
+      title.className = "calendar-task-card-title";
+      title.textContent = task.text;
+
+      const meta = document.createElement("div");
+      meta.className = "calendar-task-card-meta";
+      meta.textContent = task.fileTitle;
+
+      const assignButton = document.createElement("button");
+      assignButton.type = "button";
+      assignButton.className = "calendar-task-assign-button";
+      assignButton.textContent = `Assign to ${selectedCalendarDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })}`;
+      assignButton.addEventListener("click", () => {
+        void assignTodoItemToDate(task.id, selectedCalendarDate);
+      });
+
+      taskCard.append(title, meta, assignButton);
+      unscheduledSection.appendChild(taskCard);
+    });
+    calendarTasks.appendChild(unscheduledSection);
+  }
+}
+
+if (prevCalendarMonthButton) {
+  prevCalendarMonthButton.addEventListener("click", () => {
+    calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1);
+    renderCalendar();
+  });
+}
+
+if (nextCalendarMonthButton) {
+  nextCalendarMonthButton.addEventListener("click", () => {
+    calendarDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1);
+    renderCalendar();
+  });
 }
 
 function showNotesView() {
@@ -4925,6 +5351,13 @@ function handleContextMenuClick(event) {
       return;
     }
 
+    if (action === "sync-calendar") {
+      if (type === "todo") {
+        toggleSyncTodoFileWithCalendar(fileMenuTarget.id);
+      }
+      return;
+    }
+
     if (action === "copy-path") {
       void copyContextFilePath(fileMenuTarget);
       return;
@@ -4978,6 +5411,10 @@ function handleContextMenuClick(event) {
     if (action === "set-due") {
       const dueTime = item.dataset.due ?? "";
       void updateTodoDueTime(todoId, dueTime);
+      return;
+    }
+    if (action === "pick-date") {
+      promptTodoDueDate(todoId);
       return;
     }
     if (action === "edit") {
@@ -5212,6 +5649,11 @@ railButtons.forEach((button) => {
   button.addEventListener("click", () => {
     if (button.dataset.view === "todo") {
       showTodoView();
+      return;
+    }
+
+    if (button.dataset.view === "calendar") {
+      showCalendarView();
       return;
     }
 
@@ -5661,6 +6103,7 @@ async function initApp() {
   const diskNotes = await loadNotesFromDisk();
   notes = await migrateLegacyNotesIfNeeded(diskNotes);
   todoFiles = await loadTodoFilesFromDisk();
+  syncedCalendarTodoFileIds = readSyncedCalendarTodoFileIds();
   await ensureTodoFilesDefaultTagCategories();
 
   if (todoFiles.length === 0) {
@@ -5727,6 +6170,13 @@ async function initApp() {
     renderTodoFilesSidebar();
     renderTodoItems();
     showTodoView();
+    return;
+  }
+
+  if (persistedState.activeView === "calendar") {
+    renderNotes();
+    renderTodoFilesSidebar();
+    showCalendarView();
     return;
   }
 

@@ -1,5 +1,5 @@
 {
-  "name": "my-electron-app",
+  "name": "loop",
   "version": "1.0.0",
   "scripts": {
     "start": "bash ./launch-app.sh",
@@ -84,19 +84,20 @@
   "license": "ISC",
   "type": "commonjs",
   "build": {
-    "appId": "com.example.my-electron-app",
-    "productName": "My Electron App",
+    "appId": "com.example.loop",
+    "productName": "Loop",
     "files": [
       "**/*"
     ],
     "directories": {
-      "buildResources": "build"
+      "buildResources": "Icos"
     },
     "linux": {
       "target": [
         "AppImage"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "to-do-line.svg"
     },
     "win": {
       "target": [
